@@ -1,0 +1,383 @@
+S.no,Site ID,Site Name,STATE,City,Transmission,STATUS,1.8G+L2.1+C,SUPERVISOR
+1,JBA0811,Supiri,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+2,JBA0812,Juba Town,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+3,JBA0813,Nyakuron Full Gospel Chur,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+4,JBA0827,Kator,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+5,JBA0867,Kololo,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+6,JBA0868,Juba Switch,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+7,JBA0882,Rock City,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+8,JBA0884,Konyo Konyo,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+9,JBA0885,Rejaf Payam,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+10,JBA0891,Juba UN Airport,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+11,JBA0892,Nimra Talata,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+12,JBA0893,Jebel Market,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+13,JBA6071,Hai Tarawa,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+14,JBA6073,Atlabara,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+15,JBA6074,Munuki 107,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+16,JBA6509,Juba UN Airport 2,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+17,JBA6075,Gurei,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+18,JBA6077,Lologo,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+19,JBA6325,Bilfam,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+20,JBA6379,Juba UN House,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+21,JBA6380,Munuki,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+22,JBA6391,Juba Post,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+23,JBA6467,Nyakuron,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+24,JBA6468,Souk Zande,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+25,JBA6070,RCS Tower/Logali House,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+26,JBA6072,Buluk,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+27,JBA6481,Gudele 1,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+28,JBA6483,Juba Bridge,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+29,JBA6484,Lologo 2,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+30,JBA6485,Muniki 2,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+31,JBA6486,Juba Stadium,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+32,JBA6487,Juba Square,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+33,JBA6488,Malakia,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+34,JBA6489,Juba Thonpiny,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+35,JBA6492,Juba UN House 2,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+36,JBA6495,Juba UN House 3,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+37,JBA6493,Juba Airport,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+38,JBA6469,Lologo Market,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+39,JBA6496,Citizen Tower,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+40,JBA6497,Referendum,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+41,JBA6519,Pyramid,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+42,JBA6501,Catholic University,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+43,JBA6502,Munuki West,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+44,JBA6503,Alfa Bank,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+45,JBA6504,Gudele block 4,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+46,JBA6506,Ronbur,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+47,JBA6507,Konyo Konyo Mahad,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+48,JBA6508,Hai Malakal,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+49,JBA6511,Souk Libya,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+50,JBA6514,Shirkat,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+51,JBA6515,Juba University,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+52,JBA6517,Beijing Complex,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+53,JBA6518,Albino Bridge,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+54,JBA6520,Jebel West,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+55,JBA6516,Juba Moderia,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+56,JBA6510,Gudele Block 9,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+57,JBA6521,Mangaten,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+58,JBA6522,Jopa,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+59,JBA6523,Gudele Block 8,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+60,JBA6524,Hai Kuwait,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+61,JBA6525,New Site Bilfam,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+62,JBA6526,Giada,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+63,JBA6527,Gumbo Market,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+64,JBA6528,Hai Mayo,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+65,JBA6529,Souk Mamur,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+66,JBA6530,Nyakuron,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+67,JBA6531,Hai Thoura,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+68,JBA6532,Amarat,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+69,JBA6533,Jebel Dinka Market,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+70,JBA6534,Kugi,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+71,JBA6535,Jebel Checkpoint,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+72,JBA6536,Mahata Yei,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+73,JBA6537,Shirkat 2,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+74,JBA6538,Hai Jalaba,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+75,JBA6539,Malakia,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+76,JBA6547,Referendum 2,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+77,JBA6543,Dahr Jebel,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+78,JBA6546,Airport road,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+79,JBA5024,Lologo1,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+80,JBA5028,Jebel Lemon,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+81,JBA5030,Kapuri,C.E.S,Juba,Microwave,On Air,Active,Joshua Francis 
+82,LNB6332,Lobonok,C.E.S,Lobonok,Microwave,On Air,No,Lule
+83,RDE0139,Gemeiza,C.E.S,Gemeiza,Microwave,On Air,No,Lule
+84,RDE0140,Mangala,C.E.S,Mangala,Microwave,On Air,No,Lule
+85,RDE0141,Mogiri,C.E.S,Mogiri,Microwave,On Air,No,Lule
+86,RDS0157,Kuda West,C.E.S,Kuda West,Microwave,On Air,No,Lule
+87,RDS0158,Sirimon,C.E.S,Sirimon,Microwave,On Air,No,Lule
+88,RDS4987,Duduru,C.E.S,Duduru,Microwave,On Air,No,Lule
+89,RDS4988,Kit/ Aru Junction,C.E.S,Kit,Microwave,On Air,No,Lule
+90,RDS6392,Nesitu,C.E.S,Nesitu,Microwave,On Air,No,Lule
+91,TRK6331,Terakeka,C.E.S,Terakeka,Microwave,On Air,No,Lule
+92,YEI0817,Kanjoro,C.E.S,Yei,Vsat,On Air,No,Lule
+93,YEI6305,Yei UN,C.E.S,Yei,Vsat,On Air,No,Lule
+94,KBT0816,Kapoeta,E.E.S,Kapoeta,Vsat,On Air,No,Lule
+95,MAG6330,Magwi,E.E.S,Magwi,Microwave,On Air,No,Lule
+96,NEM0815,Nimule,E.E.S,Nimule,Microwave,On Air,No,Lule
+97,PGR0895,Pageri,E.E.S,Pageri,Microwave,On Air,No,Lule
+98,RDS4989,Moli,E.E.S,Moli,Microwave,On Air,No,Lule
+99,TOR0823,Torit UN,E.E.S,Torit,Vsat,On Air,No,Lule
+100,TOR0814,Torit,E.E.S,Torit,Vsat,On Air,No,Lule
+101,RPT0275,Nimule Rpt,E.E.S,Nimule,Microwave,On Air,No,Lule
+102,AKO4913,Akobo,JONGLEI,Akobo,Vsat,On Air,No,Lule
+103,AYD4912,Ayod,JONGLEI,AYOD,Vsat,On Air,No,Lule
+104,BOR0857,Bor 2,JONGLEI,Bor,Microwave,On Air,No,Lule
+105,BOR0890,Bor RPT,JONGLEI,Bor,Microwave,On Air,No,Lule
+106,BOR0824,Bor UN,JONGLEI,Bor,Microwave,On Air,No,Lule
+107,DUK6333,Duk Padiet,JONGLEI,Duk Padiet,Vsat,On Air,No,Lule
+108,PIB4908,Pibor,JONGLEI,Pibor,Vsat,On Air,No,Lule
+109,PRI6285,Pieri,JONGLEI,Pieri,Vsat,On Air,No,Lule
+110,PUL4932,Kongor,JONGLEI,Kongor,Vsat,On Air,No,Lule
+111,RDE0138,Panwel,JONGLEI,Panwel,Microwave,On Air,No,Lule
+112,URO6282,Yuai,JONGLEI,Yuai,Vsat,On Air,No,Lule
+113,WAT6234,Waat,JONGLEI,Waat,Vsat,On Air,No,Lule
+114,RPT0260,Aiweng,JONGLEI,Poktap,Vsat,On Air,No,Lule
+115,BOR3508,Langbar,JONGLEI,Bor,Microwave,On Air,No,Lule
+116,BOR3509,Hai Machuor,JONGLEI,Bor,Microwave,On Air,No,Lule
+117,AKO3507,Akobo UNMISS,JONGLEI,AKobo,Vsat,On Air,No,Lule
+118,AKT6344,Akot,LAKES,Akot,Microwave,On Air,No,Victor Ernest
+119,CHU6346,Chueibet,LAKES,Chueibet,Microwave,On Air,No,Victor Ernest
+120,MOD6347,Moderia,LAKES,Karich,Microwave,On Air,No,Victor Ernest
+121,NYG6394,Nyang,LAKES,Nyang,Microwave,On Air,No,Victor Ernest
+122,RDS0164,Domulota,LAKES,Domulota,Microwave,On Air,No,Victor Ernest
+123,RDS0165,Wulu,LAKES,Wulu,Microwave,On Air,No,Victor Ernest
+124,RDS0166,Abiriu,LAKES,Abiriu,Microwave,On Air,No,Victor Ernest
+125,RDS0167,Malou Pec 1,LAKES,Malou Pec,Microwave,On Air,No,Victor Ernest
+126,RDS6090,Aluakluak,LAKES,Aluakluak,Microwave,On Air,No,Victor Ernest
+127,RMB0871,Rumbek UN,LAKES,Rumbek,Microwave,On Air,No,Victor Ernest
+128,RMB0855,Rumbek,LAKES,Rumbek,Microwave,On Air,No,Victor Ernest
+129,RMB6297,Rumbek 2,LAKES,Rumbek,Microwave,On Air,No,Victor Ernest
+130,YRL0856,Yirol,LAKES,Yirol,Microwave,On Air,No,Victor Ernest
+131,MAP6302,Maper,LAKES,Maper,Vsat,On Air,No,Victor Ernest
+132,AWR6363,Awerial,LAKES,Awerial,Microwave,On Air,No,Victor Ernest
+133,ART4976,Ariath,N.B.G.S,Ariath,Microwave,On Air,No,MAKUEI
+134,AWL0851,Awiel Main,N.B.G.S,Aweil,Microwave,On Air,No,MAKUEI
+135,AWL0859,Machar,N.B.G.S,Aweil,Microwave,On Air,No,MAKUEI
+136,AWL0873,Zahara,N.B.G.S,Awiel,Microwave,On Air,No,MAKUEI
+137,AWL6058,Malo Awer,N.B.G.S,Awiel,Microwave,On Air,No,MAKUEI
+138,AWL6059,Matinag,N.B.G.S,Awiel,Microwave,On Air,No,MAKUEI
+139,AWL6385,Awiel Medina,N.B.G.S,Awiel,Microwave,On Air,No,MAKUEI
+140,AWL6387,Aweil UN,N.B.G.S,Aweil,Microwave,On Air,No,MAKUEI
+141,AWL3504,Hai Naivasha,N.B.G.S,Aweil,Microwave,On Air,No,MAKUEI
+142,BER4992,Bar Mayen,N.B.G.S,Bar Mayen,Microwave,On Air,No,MAKUEI
+143,MLL4974,Malek Alel,N.B.G.S,Malek Alel,Microwave,On Air,No,MAKUEI
+144,NLL4975,Nyamlel,N.B.G.S,Nyamlel,Microwave,On Air,No,MAKUEI
+145,NOD4973,Nodool,N.B.G.S,Madhol,Microwave,On Air,No,MAKUEI
+146,TER6232,Tiaraliet,N.B.G.S,Tiaraliet,Microwave,On Air,No,MAKUEI
+147,WAN4906,Wanjok,N.B.G.S,Wanjok,Microwave,On Air,No,MAKUEI
+148,WRW4905,Awar Awar,N.B.G.S,Awar Awar,Microwave,On Air,No,MAKUEI
+149,WAN4907,Malual Kon,N.B.G.S,Malual Kon,Microwave,On Air,No,MAKUEI
+150,WAN4909,Wunyiik,N.B.G.S,Wunyiik,Microwave,On Air,No,MAKUEI
+151,GKM6360,Gok Machar,N.B.G.S,Gok Machar,Microwave,On Air,No,MAKUEI
+152,AJT4952,Ajuongthok,UNITY,Ajuongthok,Microwave,On Air,No,Chuol Far
+153,BAN0800,Hai Kali,UNITY,Bentiu,Microwave,On Air,No,Chuol Far
+154,BAN0821,Bentiu,UNITY,Bentiu,Microwave,On Air,No,Chuol Far
+155,BAN6422,Bentiu Hospital,UNITY,Bentiu,Microwave,On Air,No,Chuol Far
+156,BAN6423,Bentiu 4,UNITY,Bentiu,Microwave,On Air,No,Chuol Far
+157,BNM0834,Abeim Nhom,UNITY,Abeim Nhom,Microwave,On Air,No,Chuol Far
+158,FNG6258,Payinjiar,UNITY,Payinjiar,Vsat,On Air,No,Chuol Far
+159,FRG0830,Pariang,UNITY,Pariang,Microwave,On Air,No,Chuol Far
+160,KOJ0805,Koch,UNITY,Koch,Microwave,On Air,No,Chuol Far
+161,KON6395,Rubkotna UNMISS 1,UNITY,Bentiu,Microwave,On Air,No,Chuol Far
+162,KON6396,Rubkotna UNMISS 2,UNITY,Bentiu,Microwave,On Air,No,Chuol Far
+163,KON0836,Robkotna,UNITY,Robkotna,Microwave,On Air,No,Chuol Far
+164,LER0850,Adok,UNITY,Adok,Microwave,On Air,No,Chuol Far
+165,LER0853,Leer,UNITY,Leer,Microwave,On Air,No,Chuol Far
+166,LER6419,Leer 2,UNITY,Leer,Microwave,On Air,No,Chuol Far
+167,LER6427,Leer UN,UNITY,Leer,Microwave,On Air,No,Chuol Far
+168,MAL0898,Mala,UNITY,Mala,Microwave,On Air,No,Chuol Far
+169,MNG0883,Manga,UNITY,Manga,Microwave,On Air,No,Chuol Far
+170,MNK0839,Mankien,UNITY,Mankien,Microwave,On Air,No,Chuol Far
+171,MYM0835,Mayom Town,UNITY,Mayom,Microwave,On Air,No,Chuol Far
+172,NAR0842,Elnar,UNITY,Elnar,Microwave,On Air,No,Chuol Far
+173,NYA6263,Nyal,UNITY,Nyal,Vsat,On Air,No,Chuol Far
+174,RDE0135,Mayom West,UNITY,Mayom West,Microwave,On Air,No,Chuol Far
+175,RDE0183,Kaljak,UNITY,Kaljak,Microwave,On Air,No,Chuol Far
+176,RDE0184,Mayom,UNITY,Mayom,Microwave,On Air,No,Chuol Far
+177,RNB0840,Ruathnyibol,UNITY,Ruathnyibol,Microwave,On Air,No,Chuol Far
+178,SRJ0828,Sarjas,UNITY,Surgas,Microwave,On Air,No,Chuol Far
+179,UNT0822,Unity,UNITY,Unity,Microwave,On Air,No,Chuol Far
+180,WNK0837,Wangkai,UNITY,Wangkai,Microwave,On Air,No,Chuol Far
+181,RDE4946,Adei,UNITY,Adei,Microwave,On Air,No,Chuol Far
+182,SRJ6301,Sarjas Base Camp,UNITY,Sarjas,Microwave,On Air,No,Chuol Far
+183,YDA4951,Yida,UNITY,Yida,Microwave,On Air,No,Chuol Far
+184,ADR0843,Adar Yel,UPPER NILE,Adar Yel,Vsat,On Air,No,Emmanuel Nyiyom
+185,AGR0870,Agor Dit,UPPER NILE,Agor Dit,Vsat,On Air,No,Emmanuel Nyiyom
+186,AKO4921,Akoka,UPPER NILE,Akoka,Vsat,On Air,No,Emmanuel Nyiyom
+187,BLT4925,Baliet,UPPER NILE,Baliet,Vsat,On Air,No,Emmanuel Nyiyom
+188,BNJ0848,Albounj,UPPER NILE,Albounj,Vsat,On Air,No,Emmanuel Nyiyom
+189,FLG0877,Paloch Market,UPPER NILE,Paloch,Vsat,On Air,No,Emmanuel Nyiyom
+190,GAG0654,Al Gaiger,UPPER NILE,Al Gaiger,Vsat,On Air,No,Emmanuel Nyiyom
+191,GAM0847,Al Jamam,UPPER NILE,Al Jamam,Vsat,On Air,No,Emmanuel Nyiyom
+192,GMR0801,Gomri,UPPER NILE,Gomri,Vsat,On Air,No,Emmanuel Nyiyom
+193,KOD4922,Kodok,UPPER NILE,Kodok,Vsat,On Air,No,Emmanuel Nyiyom
+194,MIT0846,Maiwut,UPPER NILE,Maiwut,Vsat,On Air,No,Emmanuel Nyiyom
+195,MLK4910,Malakal UN,UPPER NILE,Malakal,Vsat,On Air,No,Emmanuel Nyiyom
+196,MLK0832,Aluakat,UPPER NILE,Malakal,Vsat,On Air,No,Emmanuel Nyiyom
+197,MLK0860,Malakal Radio,UPPER NILE,Malakal,Vsat,On Air,No,Emmanuel Nyiyom
+198,MLK0863,Malakal Rpt,UPPER NILE,Malakal,Vsat,On Air,No,Emmanuel Nyiyom
+199,MLK0888,Souk Saura,UPPER NILE,Malakal,Vsat,On Air,No,Emmanuel Nyiyom
+200,MLK6466,Madiria,UPPER NILE,Malakal,Vsat,On Air,No,Emmanuel Nyiyom
+201,MLT0802,Melut Petroleum Camp,UPPER NILE,Melut,Vsat,On Air,No,Emmanuel Nyiyom
+202,MLT0841,Melut,UPPER NILE,Melut,Vsat,On Air,No,Emmanuel Nyiyom
+203,MTG0845,Mathyang,UPPER NILE,Mathyang,Vsat,On Air,No,Emmanuel Nyiyom
+204,NAK4933,Nakdiar,UPPER NILE,Nakdiar,Vsat,On Air,No,Emmanuel Nyiyom
+205,NIR0833,Nasir,UPPER NILE,Nasir,Vsat,On Air,No,Emmanuel Nyiyom
+206,RDE0126,Khor Adar,UPPER NILE,Wuniyer,Vsat,On Air,No,Emmanuel Nyiyom
+207,RDE0127,Bayo,UPPER NILE,Bayo,Vsat,On Air,No,Emmanuel Nyiyom
+208,RDS0059,Zahra,UPPER NILE,Zahra,Vsat,On Air,No,Emmanuel Nyiyom
+209,RDS0061,Kuro,UPPER NILE,Kuro,Vsat,On Air,No,Emmanuel Nyiyom
+210,RDS0064,Paloch,UPPER NILE,Paloch,Vsat,On Air,No,Emmanuel Nyiyom
+211,RNK4901,Renk,UPPER NILE,Renk,Vsat,On Air,No,Emmanuel Nyiyom
+212,RNK4902,New Renk,UPPER NILE,Renk,Vsat,On Air,No,Emmanuel Nyiyom
+213,RNK6389,Renk 4,UPPER NILE,Renk,Vsat,On Air,No,Emmanuel Nyiyom
+214,RNK6425,Renk 5,UPPER NILE,Renk,Vsat,On Air,No,Emmanuel Nyiyom
+215,RNK3514,Renk new,UPPER NILE,Renk,Vsat,On Air,No,Emmanuel Nyiyom
+216,ULG4923,Ulang,UPPER NILE,Ulang,Vsat,On Air,No,Emmanuel Nyiyom
+217,MAY4997,Mayen Rual,WARRAP,Jungkor,Microwave,On Air,No,SIMON KAMILLO
+218,AKN4980,Akon,WARRAP,Akon,Microwave,On Air,No,SIMON KAMILLO
+219,ANT6345,Annet Agok,WARRAP,Mading Jokthian,Microwave,On Air,No,SIMON KAMILLO
+220,GRG0852,Gogrial,WARRAP,Gogrial,Microwave,On Air,No,SIMON KAMILLO
+221,LEI4994,Lietnhom,WARRAP,Lietnhom,Microwave,On Air,No,SIMON KAMILLO
+222,LOU4996,Marial Lou,WARRAP,Marial Lou,Microwave,On Air,No,SIMON KAMILLO
+223,NGP4998,Ngap Agok,WARRAP,Ngap Agok,Microwave,On Air,No,SIMON KAMILLO
+224,RDE0186,Ajak Kuac,WARRAP,Ajak Kuac,Microwave,On Air,No,SIMON KAMILLO
+225,RDE0187,Aweng,WARRAP,Aweng,Microwave,On Air,No,SIMON KAMILLO
+226,RDE0188,Wonrok,WARRAP,Wonrok,Microwave,On Air,No,SIMON KAMILLO
+227,RDE0189,Anguoth,WARRAP,Anguoth,Microwave,On Air,No,SIMON KAMILLO
+228,RDE0190,Kauc South,WARRAP,Kuac South,Microwave,On Air,No,SIMON KAMILLO
+229,RDS0168,Tiit Cok,WARRAP,Tiit Cok,Microwave,On Air,No,SIMON KAMILLO
+230,RMK6231,Romic,WARRAP,Romic,Microwave,On Air,No,SIMON KAMILLO
+231,THI6233,Thiet,WARRAP,Thiet,Microwave,On Air,No,SIMON KAMILLO
+232,TNJ0865,Tonj Town,WARRAP,Tonj,Microwave,On Air,No,SIMON KAMILLO
+233,TUR0803,Turalei,WARRAP,Turalei,Microwave,On Air,No,SIMON KAMILLO
+234,KOC6098,Akuoc Thon,WARRAP,Akuoc Thon,Vsat,On Air,No,SIMON KAMILLO
+235,WRB0854,Kwajok main,WARRAP,Kwajok,Microwave,On Air,No,SIMON KAMILLO
+236,WRP6235,Warrab,WARRAP,Warrab,Microwave,On Air,No,SIMON KAMILLO
+237,WRB0858,Kwajok 2,WARRAP,Kwajok,Microwave,On Air,No,SIMON KAMILLO
+238,WRB0899,Kwajok UN,WARRAP,Kwajok,Microwave,On Air,No,SIMON KAMILLO
+239,ABY6304,Abyei,WARRAP,Abyei,Microwave,On Air,No,SIMON KAMILLO
+240,AWU4963,Awul,WARRAP,Awul,Microwave,On Air,No,SIMON KAMILLO
+241,CAG6593,Cueinagany,WARRAP,Cueinagany,Microwave,On Air,No,SIMON KAMILLO
+242,BRO0880,Boro,W.B.G.S,Boro,Vsat,On Air,No,SIMON KAMILLO
+243,DZB0881,Deim Zubier,W.B.G.S,Deim Zubier,Vsat,On Air,No,SIMON KAMILLO
+244,MPL6264,Mapel,W.B.G.S,Mapel,Microwave,On Air,No,SIMON KAMILLO
+245,RAJ0869,Raja,W.B.G.S,Raja,Vsat,On Air,No,SIMON KAMILLO
+246,RDE0191,Marial Bai,W.B.G.S,Marial Bai,Microwave,On Air,No,SIMON KAMILLO
+247,RDE6350,Kwajena,W.B.G.S,Kwajena,Microwave,On Air,No,SIMON KAMILLO
+248,RDS0169,Akwoyo,W.B.G.S,Akwoyo,Microwave,On Air,No,SIMON KAMILLO
+249,WAW6062,Wau UN,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+250,WAW0861,Wau Rpt,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+251,WAW0862,Lokoloko,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+252,WAW0864,Wau North,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+253,WAW0886,Hai Fahal,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+254,WAW0887,Hai Kosti,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+255,WAW6061,Aldaraja,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+256,WAW6064,Sudatel Tower,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+257,WAW6065,Wau Radio (Gonia),W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+258,WAW6066,Wau TV,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+259,WAW6299,Wau East Bank,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+260,WAW6386,Hai Islamia,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+261,WAW6465,Hai Calvary,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+262,WAW3502,Hai Nazaret,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+263,WAW3511,Wau Amarulla,W.B.G.S,Wau,Microwave,On Air,No,SIMON KAMILLO
+264,EZO4926,Ezo,W.E.S,Ezo,Vsat,On Air,No,Mutasim
+265,IBA4985,Ibba,W.E.S,Ibba,Vsat,On Air,No,Mutasim
+266,LUI6261,Lui,W.E.S,Lui,Microwave,On Air,No,Mutasim
+267,MRD0818,Maridi,W.E.S,Maridi,Microwave,On Air,No,Mutasim
+268,MRT0866,Mundri,W.E.S,Mundri,Microwave,On Air,No,Joshua Francis 
+269,RDS0159,Jambo,W.E.S,Jambo,Microwave,On Air,No,Joshua Francis 
+270,RDS0160,Lanyi,W.E.S,Lanyi,Microwave,On Air,No,Joshua Francis 
+271,RDS0161,Gulu,W.E.S,Gulu,Microwave,On Air,No,Joshua Francis 
+272,RDS0162,Maye Yeri,W.E.S,Maye Yeri,Microwave,On Air,No,Victor Ernest
+273,RDS0163,Mvolo,W.E.S,Mvolo,Microwave,On Air,No,Victor Ernest
+274,TMB4903,Tambura,W.E.S,Tambura,Vsat,On Air,No,Mutasim
+275,YMB0819,Yambio,W.E.S,Yambio,Vsat,On Air,No,Mutasim
+276,YMB6256,Napere,W.E.S,Yambio,Vsat,On Air,No,Mutasim
+277,YMB6257,Yambio UN,W.E.S,Yambio,Vsat,On Air,No,Mutasim
+278,YMB3515,Mamenze,W.E.S,Yambio,Vsat,On Air,No,Mutasim
+279,YMB3516,Nabagu,W.E.S,Yambio,Vsat,On Air,No,Mutasim
+280,GAD4986,Gadiang,JONGLEI,Gadiang,Vsat,On Air,No,Lule
+281,TOR6594,Torit Ministry,E.E.S,Torit,Vsat,On Air,No,Lule
+282,JBA5025,Joppa BLK9,C.E.S,Juba,Microwave,On Air,No,Joshua Francis 
+283,JBA5026,Gumbo Bor road,C.E.S,Juba,Microwave,On Air,No,Joshua Francis 
+284,WAW3501,Daraja,W.B.G.S,WAU,Microwave,On Air,No,SIMON KAMILLO
+285,WAW5042,Lokloko 2,W.B.G.S,WAU,Microwave,On Air,No,SIMON KAMILLO
+286,RMB5047,Rumbek Central Bank,LAKES,Rumbek,Microwave,On Air,No,Victor Ernest
+287,WAW5040,Hai Salam,W.B.G.S,WAU,Microwave,On Air,No,SIMON KAMILLO
+288,AWL5052,Gateway School,N.B.G.S,Aweil,Microwave,On Air,No,MAKUEI
+289,AWL5051,Mapel West,N.B.G.S,Aweil,Microwave,On Air,No,MAKUEI
+290,AKP5005,Akop,WARRAP,Akop,Microwave,On Air,No,SIMON KAMILLO
+291,JBA6549,Souk Darfur,C.E.S,Juba,Microwave,On Air,No,Joshua Francis 
+292,JBA6573,Hai Mamour,C.E.S,Juba,Microwave,On Air,No,Joshua Francis 
+293,JBA6544,Kubri Haboba,C.E.S,Juba,Microwave,On Air,No,Joshua Francis 
+294,RLB5006,Rualbet,WARRAP,Rualbet,Microwave,On Air,No,SIMON KAMILLO
+295,MNG4003,Mangala Market,C.E.S,Mangala,Microwave,On Air,No,Lule
+296,JBA5022,Custom,C.E.S,Juba,Microwave,On Air,No,Joshua Francis 
+297,BOR5062,Malual Chaat,JONGLEI,Bor,Microwave,On Air,No,Lule
+298,WAW5041,Bazia jedid,W.B.G.S,WAU,Microwave,ON Air,No,SIMON KAMILLO
+299,ATL5044,Atukuel,WARRAP,Atukuel,Microwave,ON Air,No,SIMON KAMILLO
+300,KNG5010,Kongor,WARRAP,Kongor,Microwave,ON Air,No,SIMON KAMILLO
+301,JBA5029,UN Checkpoint,C.E.S,Juba,Microwave,ON Air,No,Joshua Francis 
+302,MYB5021,Mayen Abun,WARRAP,Mayen Abun,Microwave,ON Air,No,SIMON KAMILLO
+303,KOD5033,Kondial,UNITY,Kondial,Microwave,ON Air,No,Chuol Far
+304,PIN5019,Pinydit,WARRAP,Pinydit,Microwave,ON Air,No,SIMON KAMILLO
+305,YDA4953,Yida 3,UNITY,YIDA,Microwave,ON Air,No,Chuol Far
+306,JAM4955,Jamjang 2,UNITY,Jamjang 2,Microwave,ON Air,No,Chuol Far
+307,AJT4956,Ajuongthok 3,UNITY,Ajuongthok,Microwave,ON Air,No,Chuol Far
+308,KIR5049,Kiir Adem,N.B.G.S,Kiir Adem,Vsat,ON Air,No,MAKUEI
+309,ALB5004,Alabiek,WARRAP,Alabiek,Microwave,ON Air,No,SIMON KAMILLO
+310,YDA5035,Yida 2,UNITY,YIDA,Microwave,ON Air,No,Chuol Far
+311,NGA6571,Ngauro,E.E.S,Nagero,Vsat,ON Air,No,Lule
+312,KON6397,Rubkotna UN3,UNITY,Bentiu,Microwave,ON Air,No,Chuol Far
+313,JBA6592,Hai Cenima,C.E.S,Juba,Microwave,ON Air,No,Joshua Francis 
+314,AMK3010,Amok Ping,LAKES,Rumbek Center,Vsat,ON Air,No,Victor Ernest
+315,GNY6260,Ganyel,UNITY,Panyjiar,Microwave,ON Air,No,Chuol Far
+316,YEI4009,Gigomoni,C.E.S,YEI,Vsat,ON Air,No,Lule
+317,JBA5023,Giada 2,C.E.S,Juba,Microwave,ON Air,Yes,Joshua Francis 
+318,JBA6574,Referundum Road,C.E.S,Juba,Microwave,ON Air,No,Joshua Francis 
+319,JBA6577,Konyo Konyo Market,C.E.S,Juba,Microwave,ON Air,No,Joshua Francis 
+320,JBA6588,Munuki Block B,C.E.S,Juba,Microwave,ON Air,No,Joshua Francis 
+321,JBA6193,Gudele 2 (Pity Oil),C.E.S,Juba,Microwave,ON Air,No,Joshua Francis 
+322,JBA6194,Atlabara B,C.E.S,Juba,Microwave,ON Air,No,Joshua Francis 
+323,JBA6595,Thongpiny new,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+324,JBA6596,Referundum 3,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+325,JBA6597,Gurei North,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+326,JBA6598,Gudele Lou Junction,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+327,JBA6560,Nyakuron West,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+328,JBA6568,Nimra Talata 3,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+329,JBA6570,Hai Game,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+330,JBA6551,Medan Simba,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+331,JBA6552,Kator2,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+332,JBA6555,Mangaten 1,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+333,JBA6556,Jundoro,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+334,JBA6564,Rock City BLK5,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+335,JBA6566,Mangaten 2,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+336,JBA6710,Gumbo 2,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+337,JBA6553,Gudele Bk 8,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+338,JBA6602,Gumbo station,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+339,JBA6572,Nyakroun East,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+340,DKN6461,Wad Akona,UPPER NILE,Wad Akona,Vsat,ON Air,,Emmanuel Nyiyom
+341,JBA6603,Kapuri2,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+342,FLG3506,Falluj 2,UPPER NILE,Falluj,Vsat,ON Air,,Emmanuel Nyiyom
+343,JBA6601,Kator Church,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+344,JBA6550,Hai Tarawa 2,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+345,JBA6567,Seven Days,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+346,RNK5048,RENK 7,UPPER NILE,Renk,Vsat,ON Air,,Emmanuel Nyiyom
+347,RNK6388,RENK 6,UPPER NILE,Renk,Vsat,ON Air,,Emmanuel Nyiyom
+348,JBA6625,Gurom,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+349,JBA6490,Check Point 2,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+350,JBA6607,Khor Willian BLK A,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+351,JBA6614,Konyo Konyo3,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+352,JBA6623,Konyo Konyo4,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+353,JBA6605,Shari Baitari,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+354,JBA6604,Gumbo Bor road2,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+355,JBA6608,Hai Baraka,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+356,JBA6611,Thongpiny3,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+357,JBA6618,Kaseri,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+358,JBA6619,Rajaf Highway,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+359,JBA6561,Souk Jebel,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+360,JBA6627,Kakuma Somali Market,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+361,JBA6624,Munuki Central,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+362,JBA6616,Nyakuron East2,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+363,JBA6612,New Site,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+364,JBA6621,Mangaten3,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+365,JBA6620,Shirkat4,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+366,JBA6613,Referendum 4,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+367,JBA6610,Jopa 3,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+368,JBA6609,Jebel Yasua,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+369,JBA6557,Hai Malakal,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+370,JBA6582,Antipas Gudele,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+371,JBA6628,Konyo Konyo 5,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+372,JBA6629,Malakia,C.E.S,Juba,Microwave,ON Air,,Joshua Francis 
+373,RDS0063,Domat,UPPER NILE,Domat,Microwave,ON Air,,Emmanuel Nyiyom
+374,BNJ4954,Maban 3,UPPER NILE,Maban,Vsat,ON Air,,Emmanuel Nyiyom
+375,BNJ3517,Maban 2,UPPER NILE,Maban,Vsat,ON Air,,Emmanuel Nyiyom
+376,RDE0128,Yong,UPPER NILE,Lol,Vsat,ON Air,,Emmanuel Nyiyom
+377,RDE0198,Pulchuol,JONGLEI,Pulchuol,Microwave,ON Air,No,Lule
+378,,,,,,,,
+379,,,,,,,,
+380,,,,,,,,
+381,,,,,,,,
+382,,,,,,,,

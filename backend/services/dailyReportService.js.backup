@@ -1,0 +1,890 @@
+import Alarm from '../models/Alarm.js';
+import Site from '../models/Site.js';
+import Ticket from '../models/Ticket.js';
+import OutageReport from '../models/OutageReport.js';
+import cron from 'node-cron';
+
+// Dynamic import for email service (to match server.js pattern)
+let emailService;
+(async () => {
+  try {
+    const emailModule = await import('./emailService.js');
+    emailService = emailModule.emailService;
+    console.log('✅ Email service imported successfully for daily reports');
+  } catch (error) {
+    console.error('❌ Failed to import email service for daily reports:', error.message);
+  }
+})();
+
+class DailyReportService {
+  constructor() {
+    this.isRunning = false;
+    this.cronJob = null;
+  }
+
+  /**
+   * Start the daily report scheduler
+   */
+  startScheduler() {
+    if (this.isRunning) {
+      console.log('📅 Daily report scheduler already running');
+      return;
+    }
+
+    console.log('🚀 Starting daily report scheduler (00:00 daily)');
+    this.isRunning = true;
+
+    // Schedule to run at 00:00 every day
+    this.cronJob = cron.schedule('0 0 * * *', async () => {
+      console.log('📅 Running scheduled daily report generation...');
+      await this.generateDailyReport();
+    }, {
+      scheduled: false // Don't start immediately
+    });
+
+    // Start the cron job
+    this.cronJob.start();
+
+    // Also run immediately for testing (can be removed in production)
+    console.log('🧪 Running initial daily report for testing...');
+    this.generateDailyReport();
+
+    console.log('✅ Daily report scheduler started');
+  }
+
+  /**
+   * Stop the daily report scheduler
+   */
+  stopScheduler() {
+    if (this.cronJob) {
+      this.cronJob.stop();
+      this.cronJob = null;
+    }
+    this.isRunning = false;
+    console.log('🛑 Daily report scheduler stopped');
+  }
+
+  /**
+   * Generate daily email report using the same data as the daily reports page
+   */
+  async generateDailyReport() {
+    try {
+      console.log('📊 Generating daily report...');
+
+      const reportDate = new Date();
+      const yesterday = new Date(reportDate);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      // Get the same data that the daily reports page uses
+      const dailyReportsData = await this.getDailyReportsFromAPI(reportDate);
+
+      console.log('📈 Collected daily reports data:', {
+        summary: dailyReportsData.summary,
+        alarmsByRootCause: dailyReportsData.alarmsByRootCause.length,
+        ticketsPerRegion: dailyReportsData.ticketsPerRegion.length,
+        totalReports: dailyReportsData.allReports.length
+      });
+
+      // Generate email content using the same data structure as the frontend
+      const emailData = this.generateDailyReportEmail(dailyReportsData, reportDate);
+
+      // Get recipients
+      const recipients = process.env.DAILY_REPORT_EMAILS ?
+        process.env.DAILY_REPORT_EMAILS.split(',') :
+        (process.env.NOC_EMAILS ? process.env.NOC_EMAILS.split(',') : []);
+
+      if (recipients.length === 0) {
+        console.warn('⚠️ No recipients configured for daily reports. Set DAILY_REPORT_EMAILS environment variable.');
+        return;
+      }
+
+      // Send email
+      await emailService.sendEmail({
+        to: recipients,
+        subject: `📊 NOC Daily Report - ${reportDate.toLocaleDateString()}`,
+        html: emailData.html,
+        text: emailData.text
+      });
+
+      console.log(`✅ Daily report sent to ${recipients.length} recipients`);
+
+    } catch (error) {
+      console.error('❌ Failed to generate daily report:', error);
+    }
+  }
+
+  /**
+   * Get alarm statistics for active alarms
+   */
+  async getAlarmStatistics() {
+    try {
+      // Count active alarms by severity
+      const criticalCount = await Alarm.countDocuments({ status: 'active', severity: 'critical' });
+      const majorCount = await Alarm.countDocuments({ status: 'active', severity: 'major' });
+      const minorCount = await Alarm.countDocuments({ status: 'active', severity: 'minor' });
+      const warningCount = await Alarm.countDocuments({ status: 'active', severity: 'warning' });
+      const infoCount = await Alarm.countDocuments({ status: 'active', severity: 'info' });
+
+      const totalActive = criticalCount + majorCount + minorCount + warningCount + infoCount;
+
+      return {
+        critical: criticalCount,
+        major: majorCount,
+        minor: minorCount,
+        warning: warningCount,
+        info: infoCount,
+        total: totalActive
+      };
+    } catch (error) {
+      console.error('❌ Failed to get alarm statistics:', error);
+      return {
+        critical: 0,
+        major: 0,
+        minor: 0,
+        warning: 0,
+        info: 0,
+        total: 0
+      };
+    }
+  }
+
+  /**
+   * Get site statistics for network health
+   */
+  async getSiteStatistics() {
+    try {
+      // Count total sites
+      const totalSites = await Site.countDocuments();
+
+      // Count sites that are "On Air" (considered online)
+      const onlineSites = await Site.countDocuments({ status: 'On Air' });
+
+      // Calculate average uptime
+      const sites = await Site.find({}, 'uptime');
+      const totalUptime = sites.reduce((sum, site) => sum + (site.uptime || 0), 0);
+      const averageUptime = sites.length > 0 ? Math.round(totalUptime / sites.length) : 100;
+
+      return {
+        total: totalSites,
+        online: onlineSites,
+        offline: totalSites - onlineSites,
+        networkHealth: averageUptime
+      };
+    } catch (error) {
+      console.error('❌ Failed to get site statistics:', error);
+      return {
+        total: 0,
+        online: 0,
+        offline: 0,
+        networkHealth: 0
+      };
+    }
+  }
+
+  /**
+   * Get ticket statistics for the day
+   */
+  async getTicketStatistics(startOfDay, endOfDay) {
+    try {
+      // Count tickets by status for the current day
+      const totalTickets = await Ticket.countDocuments({
+        emailSentAt: { $gte: startOfDay, $lt: endOfDay }
+      });
+
+      const resolvedTickets = await Ticket.countDocuments({
+        emailSentAt: { $gte: startOfDay, $lt: endOfDay },
+        status: { $in: ['resolved', 'Resolved', 'Closed'] }
+      });
+
+      const inProgressTickets = await Ticket.countDocuments({
+        emailSentAt: { $gte: startOfDay, $lt: endOfDay },
+        status: { $in: ['In Progress', 'pending'] }
+      });
+
+      // Calculate resolution rate
+      const resolutionRate = totalTickets > 0 ? Math.round((resolvedTickets / totalTickets) * 100) : 0;
+
+      // Calculate MTTR (Mean Time To Resolution) for resolved tickets
+      const resolvedTicketsWithTimes = await Ticket.find({
+        emailSentAt: { $gte: startOfDay, $lt: endOfDay },
+        status: { $in: ['resolved', 'Resolved', 'Closed'] },
+        resolvedAt: { $exists: true, $ne: null }
+      }, 'emailSentAt resolvedAt');
+
+      let totalResolutionTime = 0;
+      let ticketsWithResolutionTime = 0;
+
+      resolvedTicketsWithTimes.forEach(ticket => {
+        if (ticket.resolvedAt && ticket.emailSentAt) {
+          const resolutionTime = ticket.resolvedAt.getTime() - ticket.emailSentAt.getTime();
+          if (resolutionTime > 0) {
+            totalResolutionTime += resolutionTime;
+            ticketsWithResolutionTime++;
+          }
+        }
+      });
+
+      const mttr = ticketsWithResolutionTime > 0 ?
+        Math.round((totalResolutionTime / ticketsWithResolutionTime) / (1000 * 60)) : 0; // in minutes
+
+      return {
+        total: totalTickets,
+        resolved: resolvedTickets,
+        inProgress: inProgressTickets,
+        resolutionRate: resolutionRate,
+        mttr: mttr
+      };
+    } catch (error) {
+      console.error('❌ Failed to get ticket statistics:', error);
+      return {
+        total: 0,
+        resolved: 0,
+        inProgress: 0,
+        resolutionRate: 0,
+        mttr: 0
+      };
+    }
+  }
+
+  /**
+   * Get daily reports data directly from database (replicates /api/outage-reports/daily endpoint logic)
+   */
+  async getDailyReportsFromAPI(reportDate) {
+    try {
+      // Set to start of day (00:00:00)
+      const startOfDay = new Date(reportDate.getFullYear(), reportDate.getMonth(), reportDate.getDate(), 0, 0, 0, 0);
+      // Set to end of day (23:59:59)
+      const endOfDay = new Date(reportDate.getFullYear(), reportDate.getMonth(), reportDate.getDate(), 23, 59, 59, 999);
+
+      // Get all reports for this day
+      const dailyReports = await OutageReport.find({
+        occurrenceTime: { $gte: startOfDay, $lte: endOfDay }
+      }).populate('alarmId').sort({ occurrenceTime: -1 });
+
+      // Aggregate alarms by root cause
+      const alarmsByRootCause = await OutageReport.aggregate([
+        {
+          $match: {
+            occurrenceTime: { $gte: startOfDay, $lte: endOfDay }
+          }
+        },
+        {
+          $group: {
+            _id: '$rootCause',
+            count: { $sum: 1 },
+            alarms: {
+              $push: {
+                id: '$_id',
+                siteNo: '$siteNo',
+                siteCode: '$siteCode',
+                region: '$region',
+                alarmType: '$alarmType',
+                occurrenceTime: '$occurrenceTime',
+                status: '$status',
+                supervisor: '$supervisor'
+              }
+            }
+          }
+        },
+        {
+          $sort: { count: -1 }
+        }
+      ]);
+
+      // Aggregate tickets per region
+
+          // Get top 3 root causes
+          const topRootCauses = Object.entries(rootCauses)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 3);
+
+          return `
+            <div class="detail-card">
+              <div class="card-header">
+                <span class="card-title">${region.region}</span>
+                <span class="card-total">${region.totalTickets} total tickets</span>
+              </div>
+
+              <div class="status-breakdown">
+                <div class="status-item">
+                  <span class="status-label">Progress:</span>
+                  <span class="status-value progress">${region.inProgressTickets}</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label">Resolved:</span>
+                  <span class="status-value resolved">${region.resolvedTickets}</span>
+                </div>
+              </div>
+
+              <div class="sla-section">
+                <div class="sla-label">SLA Compliance:</div>
+                <div class="sla-metrics">
+                  <span class="sla-within">✅ Within SLA</span>
+                  <span class="sla-out">❌ Out of SLA: ${outOfSLA}</span>
+                </div>
+              </div>
+
+              <div class="root-causes">
+                <div class="root-causes-label">Top Root Causes:</div>
+                <div class="root-causes-tags">
+                  ${topRootCauses.map(([cause, count]) =>
+                    `<span class="root-cause-tag">${cause}: ${count}</span>`
+                  ).join('')}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+    };
+
+    // Helper function to create root cause breakdown HTML
+    const createRootCauseBreakdownHTML = (alarmsByRootCause) => {
+      return alarmsByRootCause.map(item => `
+        <div class="root-cause-item">
+          <span class="root-cause-name">${item.rootCause}</span>
+          <span class="root-cause-count">${item.count}</span>
+        </div>
+      `).join('');
+    };
+
+    // Helper function to create chart representations (simple HTML instead of React charts)
+    const createPieChartHTML = (alarmsByRootCause) => {
+      const colors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6'];
+      const total = alarmsByRootCause.reduce((sum, item) => sum + item.count, 0);
+
+      return `
+        <div class="chart-placeholder">
+          <div class="chart-legend">
+            ${alarmsByRootCause.map((item, index) => `
+              <div class="legend-item">
+                <div class="legend-color" style="background-color: ${colors[index % colors.length]}"></div>
+                <span class="legend-text">${item.rootCause}: ${item.count} (${total > 0 ? Math.round((item.count / total) * 100) : 0}%)</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    };
+
+    const createBarChartHTML = (ticketsPerRegion) => {
+      const maxValue = Math.max(...ticketsPerRegion.map(r => r.totalTickets));
+
+      return `
+        <div class="chart-placeholder">
+          <div class="bar-chart">
+            ${ticketsPerRegion.map(region => {
+              const percentage = maxValue > 0 ? (region.totalTickets / maxValue) * 100 : 0;
+              return `
+                <div class="bar-item">
+                  <div class="bar-label">${region.region}</div>
+                  <div class="bar-container">
+                    <div class="bar-fill" style="width: ${percentage}%"></div>
+                    <div class="bar-value">${region.totalTickets}</div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    };
+
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>NOC Daily Report - ${dateStr}</title>
+    <style>
+        body {
+          margin: 0;
+          padding: 20px;
+          background-color: #0f1419;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          color: #ffffff;
+        }
+        .container {
+          max-width: 1200px;
+          margin: 0 auto;
+        }
+
+        /* Header */
+        .header {
+          margin-bottom: 32px;
+        }
+        .header-content {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 16px;
+        }
+        .header-title {
+          font-size: 30px;
+          font-weight: bold;
+          color: #ffffff;
+          margin-bottom: 8px;
+        }
+        .header-subtitle {
+          color: #9ca3af;
+          font-size: 14px;
+        }
+        .header-controls {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+        }
+        .date-input {
+          background-color: #1f2937;
+          border: 1px solid #374151;
+          border-radius: 8px;
+          padding: 8px 12px;
+          color: #ffffff;
+          font-size: 14px;
+        }
+
+        /* Summary Cards */
+        .summary-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 24px;
+          margin-bottom: 24px;
+        }
+        .summary-card {
+          background-color: #1e2230;
+          border: 1px solid #374151;
+          border-radius: 8px;
+          padding: 24px;
+          text-align: center;
+        }
+        .card-title {
+          color: #9ca3af;
+          font-size: 14px;
+          font-weight: 500;
+          margin-bottom: 8px;
+        }
+        .card-value {
+          font-size: 30px;
+          font-weight: bold;
+          margin: 8px 0;
+        }
+        .card-subtitle {
+          font-size: 12px;
+          color: #6b7280;
+        }
+
+        /* Charts Section */
+        .charts-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 24px;
+          margin-bottom: 24px;
+        }
+        .chart-card {
+          background-color: #1e2230;
+          border: 1px solid #374151;
+          border-radius: 8px;
+          padding: 24px;
+        }
+        .chart-title {
+          font-size: 18px;
+          font-weight: 600;
+          color: #ffffff;
+          margin-bottom: 16px;
+        }
+
+        /* Chart Placeholders */
+        .chart-placeholder {
+          height: 300px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background-color: #111827;
+          border-radius: 8px;
+          border: 2px dashed #374151;
+        }
+        .chart-legend {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .legend-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .legend-color {
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+        }
+        .legend-text {
+          color: #d1d5db;
+          font-size: 14px;
+        }
+
+        /* Bar Chart */
+        .bar-chart {
+          width: 100%;
+          padding: 20px;
+        }
+        .bar-item {
+          display: flex;
+          align-items: center;
+          margin-bottom: 16px;
+        }
+        .bar-label {
+          width: 80px;
+          font-size: 14px;
+          color: #9ca3af;
+          margin-right: 16px;
+        }
+        .bar-container {
+          flex: 1;
+          height: 24px;
+          background-color: #374151;
+          border-radius: 4px;
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+        .bar-fill {
+          height: 100%;
+          background-color: #3b82f6;
+          border-radius: 4px;
+          transition: width 0.3s ease;
+        }
+        .bar-value {
+          position: absolute;
+          right: 8px;
+          color: #ffffff;
+          font-size: 12px;
+          font-weight: bold;
+        }
+
+        /* Details Section */
+        .details-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 24px;
+        }
+        .detail-card {
+          background-color: #1e2230;
+          border: 1px solid #374151;
+          border-radius: 8px;
+          padding: 16px;
+          margin-bottom: 16px;
+        }
+        .card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 12px;
+        }
+        .card-title {
+          font-size: 18px;
+          font-weight: 500;
+          color: #ffffff;
+        }
+        .card-total {
+          font-size: 18px;
+          font-weight: bold;
+          color: #3b82f6;
+        }
+
+        /* Status breakdown */
+        .status-breakdown {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+        .status-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .status-label {
+          font-size: 14px;
+          color: #9ca3af;
+        }
+        .status-value.progress {
+          color: #eab308;
+          font-weight: bold;
+        }
+        .status-value.resolved {
+          color: #22c55e;
+          font-weight: bold;
+        }
+
+        /* SLA Section */
+        .sla-section {
+          margin-bottom: 12px;
+        }
+        .sla-label {
+          font-size: 14px;
+          color: #9ca3af;
+          margin-bottom: 4px;
+        }
+        .sla-metrics {
+          display: flex;
+          gap: 16px;
+        }
+        .sla-within {
+          color: #22c55e;
+          font-size: 14px;
+        }
+        .sla-out {
+          color: #ef4444;
+          font-size: 14px;
+        }
+
+        /* Root Causes */
+        .root-causes {
+          margin-bottom: 8px;
+        }
+        .root-causes-label {
+          font-size: 14px;
+          color: #9ca3af;
+          margin-bottom: 4px;
+        }
+        .root-causes-tags {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .root-cause-tag {
+          background-color: rgba(147, 51, 234, 0.2);
+          color: #c084fc;
+          font-size: 12px;
+          padding: 4px 8px;
+          border-radius: 4px;
+        }
+
+        /* Root Cause Items */
+        .root-cause-breakdown {
+          margin-bottom: 16px;
+        }
+        .root-cause-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 12px;
+          background-color: #374151;
+          border-radius: 8px;
+          margin-bottom: 8px;
+        }
+        .root-cause-name {
+          font-weight: 500;
+          color: #ffffff;
+        }
+        .root-cause-count {
+          font-weight: bold;
+          color: #3b82f6;
+        }
+
+        /* Email footer */
+        .email-footer {
+          margin-top: 32px;
+          text-align: center;
+          color: #6b7280;
+          font-size: 14px;
+          padding: 16px;
+          background-color: #1e2230;
+          border-radius: 8px;
+          border: 1px solid #374151;
+        }
+        .timestamp {
+          color: #9ca3af;
+          font-size: 12px;
+          margin-top: 8px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+          .charts-grid, .details-grid {
+            grid-template-columns: 1fr;
+          }
+          .summary-grid {
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-content">
+                <div>
+                    <h1 class="header-title">Daily Reports</h1>
+                    <p class="header-subtitle">Daily outage reports showing alarms by root cause and tickets per region</p>
+                </div>
+                <div class="header-controls">
+                    <input
+                        type="date"
+                        value="${reportDate.toISOString().split('T')[0]}"
+                        class="date-input"
+                        readonly
+                    />
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h3 class="card-title">Total Tickets</h3>
+                <p class="card-value" style="color: #ffffff;">${dailyReportsData.summary.totalReports}</p>
+            </div>
+            <div class="summary-card">
+                <h3 class="card-title">Resolved</h3>
+                <p class="card-value" style="color: #22c55e;">${dailyReportsData.summary.totalResolved}</p>
+            </div>
+            <div class="summary-card">
+                <h3 class="card-title">In Progress</h3>
+                <p class="card-value" style="color: #eab308;">${dailyReportsData.summary.totalInProgress}</p>
+            </div>
+            <div class="summary-card">
+                <h3 class="card-title">Performance</h3>
+                <p class="card-value" style="color: #a855f7;">
+                  ${dailyReportsData.summary.totalReports > 0
+                    ? Math.round((dailyReportsData.summary.totalResolved / dailyReportsData.summary.totalReports) * 100)
+                    : 0}% (Resolution Rate)
+                </p>
+                <p class="card-subtitle">Resolution Rate</p>
+            </div>
+            <div class="summary-card">
+                <h3 class="card-title">MTTR (min)</h3>
+                <p class="card-value" style="color: #3b82f6;">${dailyReportsData.summary.mttr}</p>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="charts-grid">
+            <!-- Alarms by Root Cause -->
+            <div class="chart-card">
+                <h3 class="chart-title">Alarms by Root Cause</h3>
+                ${createPieChartHTML(dailyReportsData.alarmsByRootCause)}
+            </div>
+
+            <!-- Tickets per Region -->
+            <div class="chart-card">
+                <h3 class="chart-title">Tickets per Region</h3>
+                ${createBarChartHTML(dailyReportsData.ticketsPerRegion)}
+            </div>
+        </div>
+
+        <!-- Detailed Tables -->
+        <div class="details-grid">
+            <!-- Root Cause Breakdown -->
+            <div class="chart-card">
+                <h3 class="chart-title">Root Cause Breakdown</h3>
+                <div class="root-cause-breakdown">
+                    ${dailyReportsData.alarmsByRootCause.length > 0
+                      ? createRootCauseBreakdownHTML(dailyReportsData.alarmsByRootCause)
+                      : '<p style="color: #9ca3af; text-align: center; padding: 40px;">No root cause data available</p>'}
+                </div>
+            </div>
+
+            <!-- Region Breakdown -->
+            <div class="chart-card">
+                <h3 class="chart-title">Region Breakdown</h3>
+                <div class="region-breakdown">
+                    ${dailyReportsData.ticketsPerRegion.length > 0
+                      ? createRegionBreakdownHTML(dailyReportsData.ticketsPerRegion, dailyReportsData.allReports)
+                      : '<p style="color: #9ca3af; text-align: center; padding: 40px;">No regional data available</p>'}
+                </div>
+            </div>
+        </div>
+
+        <!-- Email Footer -->
+        <div class="email-footer">
+            <p>NOC Alert System - Daily Automated Report</p>
+            <p class="timestamp">Generated on ${reportDate.toLocaleString()}</p>
+        </div>
+    </div>
+</body>
+</html>
+    `;
+
+    const text = `
+📊 NOC Daily Report - ${dateStr}
+
+📈 DAILY REPORTS
+Daily outage reports showing alarms by root cause and tickets per region
+
+SUMMARY:
+Total Tickets: ${dailyReportsData.summary.totalReports}
+Resolved: ${dailyReportsData.summary.totalResolved}
+In Progress: ${dailyReportsData.summary.totalInProgress}
+Performance: ${dailyReportsData.summary.totalReports > 0
+  ? Math.round((dailyReportsData.summary.totalResolved / dailyReportsData.summary.totalReports) * 100)
+  : 0}% (Resolution Rate)
+MTTR (min): ${dailyReportsData.summary.mttr}
+
+ALARMS BY ROOT CAUSE:
+${dailyReportsData.alarmsByRootCause.length > 0
+  ? dailyReportsData.alarmsByRootCause.map(item => `${item.rootCause}: ${item.count}`).join('\n')
+  : 'No root cause data available'}
+
+TICKETS PER REGION:
+${dailyReportsData.ticketsPerRegion.length > 0
+  ? dailyReportsData.ticketsPerRegion.map(region => {
+      const regionReports = dailyReportsData.allReports.filter(r => r.region === region.region);
+      const resolvedInRegion = regionReports.filter(r =>
+        ['Resolved', 'Closed'].includes(r.status) &&
+        r.resolutionTime && r.occurrenceTime
+      );
+
+      let withinSLA = 0;
+      let outOfSLA = 0;
+      const rootCauses = {};
+
+      resolvedInRegion.forEach(report => {
+        if (report.resolutionTime && report.occurrenceTime) {
+          const resolutionTime = new Date(report.resolutionTime).getTime();
+          const occurrenceTime = new Date(report.occurrenceTime).getTime();
+          const durationHours = (resolutionTime - occurrenceTime) / (1000 * 60 * 60);
+
+          if (durationHours <= 2) {
+            withinSLA++;
+          } else {
+            outOfSLA++;
+          }
+        }
+        const rootCause = report.rootCause || 'Not specified';
+        rootCauses[rootCause] = (rootCauses[rootCause] || 0) + 1;
+      });
+
+      const topRootCauses = Object.entries(rootCauses)
+        .sort(([,a], [,b]) => b - a)
+        .slice(0, 3)
+        .map(([cause, count]) => `${cause}: ${count}`)
+        .join(', ');
+
+      return `${region.region}:
+  Total tickets: ${region.totalTickets}
+  Progress: ${region.inProgressTickets}
+  Resolved: ${region.resolvedTickets}
+  SLA Compliance: Within SLA, Out of SLA: ${outOfSLA}
+  Top Root Causes: ${topRootCauses}`;
+    }).join('\n\n')
+  : 'No regional data available'}
+  : 'No regional ticket data available'}
+
+SUMMARY:
+Total tickets: ${dailyReportsData.summary.totalReports}
+Root cause categories: ${dailyReportsData.alarmsByRootCause.length}
+Regions affected: ${dailyReportsData.ticketsPerRegion.length}
+
+This is an automated daily report from the NOC Alert System.
+Generated on ${reportDate.toLocaleString()}
+    `;
+
+    return { html, text };
+  }
+}
+
+// Create and export singleton instance
+export const dailyReportService = new DailyReportService();
+export default DailyReportService;
