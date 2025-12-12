@@ -17,8 +17,8 @@ class DailyReportService {
       return;
     }
 
-    // Schedule to run at 00:00 every day
-    this.cronJob = cron.schedule('0 0 * * *', async () => {
+    // Schedule to run every 10 minutes for testing
+    this.cronJob = cron.schedule('*/10 * * * *', async () => {
       console.log('📅 Running scheduled daily report generation...');
       await this.generateDailyReport();
     }, {
@@ -29,8 +29,15 @@ class DailyReportService {
     this.cronJob.start();
     this.isRunning = true;
     
-    const nextRun = this.cronJob.nextDate().format('YYYY-MM-DD HH:mm:ss');
-    console.log(`✅ Daily report scheduler started. Next run at: ${nextRun}`);
+    // Calculate next run time (next 10-minute interval)
+    const now = new Date();
+    const nextRun = new Date(now);
+    nextRun.setMinutes(Math.ceil(now.getMinutes() / 10) * 10, 0, 0);
+    if (nextRun <= now) {
+      nextRun.setMinutes(nextRun.getMinutes() + 10);
+    }
+    
+    console.log(`✅ Daily report scheduler started. Next run at: ${nextRun.toLocaleTimeString()}`);
   }
 
   /**
@@ -87,10 +94,12 @@ class DailyReportService {
     endOfDay.setHours(23, 59, 59, 999);
 
     try {
-      // Get all reports for this day
+      // Get all reports for this day with required fields
       const dailyReports = await OutageReport.find({
         occurrenceTime: { $gte: startOfDay, $lte: endOfDay }
-      }).sort({ occurrenceTime: -1 });
+      }, 'siteCode siteNo region alarmType occurrenceTime resolutionTime status expectedRestorationTime mandatoryRestorationTime rootCause subrootCause supervisor username')
+      .sort({ occurrenceTime: -1 })
+      .lean();
 
       // Process reports by region
       const regionMap = new Map();
@@ -195,7 +204,6 @@ class DailyReportService {
         reportDate: startOfDay,
         summary: {
           totalReports,
-          totalOpen,
           totalInProgress,
           totalResolved,
           totalWithinSLA,
@@ -216,16 +224,35 @@ class DailyReportService {
   /**
    * Generate HTML and text content for daily report email
    */
+  formatDate(date) {
+    if (!date) return 'N/A';
+    const d = new Date(date);
+    const day = d.getDate().toString().padStart(2, '0');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = monthNames[d.getMonth()];
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  formatDateTime(date) {
+    if (!date) return 'N/A';
+    const d = new Date(date);
+    const day = d.getDate().toString().padStart(2, '0');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = monthNames[d.getMonth()];
+    const year = d.getFullYear();
+    const hours = d.getHours().toString().padStart(2, '0');
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+    const ampm = d.getHours() >= 12 ? 'PM' : 'AM';
+    
+    return `${day}/${month}/${year} ${hours}:${minutes} ${ampm}`;
+  }
+
   async generateDailyReportEmail(dailyReportsData, reportDate) {
     const { ticketsPerRegion = [], alarmsByRootCause = [], allReports = [], summary = {} } = dailyReportsData;
     
     // Format the date
-    const dateStr = new Date(reportDate).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
+    const dateStr = this.formatDate(reportDate);
 
     // Calculate SLA percentage
     const slaPercentage = summary.totalResolved > 0 
@@ -397,19 +424,14 @@ class DailyReportService {
             <p class="value" style="color: #1d4ed8;">${summary.totalReports}</p>
           </div>
           <div class="summary-card">
-            <h3>Resolved</h3>
-            <p class="value" style="color: #16a34a;">${summary.totalResolved}</p>
-          </div>
-          <div class="summary-card">
             <h3>In Progress</h3>
             <p class="value" style="color: #d97706;">${summary.totalInProgress}</p>
           </div>
           <div class="summary-card">
-            <h3>Resolution Rate</h3>
-            <p class="value" style="color: #7c3aed;">
-              ${summary.totalReports > 0 ? Math.round((summary.totalResolved / summary.totalReports) * 100) : 0}%
-            </p>
+            <h3>Resolved</h3>
+            <p class="value" style="color: #16a34a;">${summary.totalResolved}</p>
           </div>
+
           <div class="summary-card">
             <h3>MTTR (min)</h3>
             <p class="value" style="color: #2563eb;">${summary.mttr || 'N/A'}</p>
@@ -421,182 +443,182 @@ class DailyReportService {
             </p>
           </div>
         </div>
-        
-        <!-- Region Breakdown -->
-        <div class="table-container">
-          <h3>Tickets by Region</h3>
-          <table class="table">
-            <thead>
+    
+    <!-- Ongoing Outages -->
+    <div class="table-container">
+      <h3>Ongoing Outages</h3>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Site</th>
+            <th>Alarm Type</th>
+            <th>Occurrence Time</th>
+            <th>Duration</th>
+            <th>Expected Restoration</th>
+            <th>Mandatory Restoration</th>
+            <th>Region</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${allReports
+            .filter(report => report.status === 'In Progress' || report.status === 'Open')
+            .slice(0, 10)
+            .map(report => {
+              const startTime = new Date(report.occurrenceTime);
+              const endTime = new Date();
+              const durationMs = endTime - startTime;
+              const durationHours = Math.floor(durationMs / (1000 * 60 * 60));
+              const durationMinutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
+              const durationStr = durationHours > 0 
+                ? `${durationHours}h ${durationMinutes}m` 
+                : `${durationMinutes}m`;
+                
+              const statusBadge = report.status === 'In Progress'
+                ? `<span class="badge badge-in-progress">In Progress</span>`
+                : `<span class="badge badge-open">${report.status}</span>`;
+                
+              return `
               <tr>
-                <th>Region</th>
-                <th style="text-align: center;">Total</th>
-                <th style="text-align: center;">In Progress</th>
-                <th style="text-align: center;">Resolved</th>
-                <th style="text-align: center;">Within SLA</th>
-                <th style="text-align: center;">Out of SLA</th>
-                <th style="text-align: center;">SLA %</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${ticketsPerRegion.map(region => {
-                const regionSlaPercentage = region.resolvedTickets > 0 
-                  ? Math.round((region.withinSLA / region.resolvedTickets) * 100) 
-                  : 0;
-                  
-                return `
-                <tr>
-                  <td>${region.region}</td>
-                  <td style="text-align: center;">${region.totalTickets}</td>
-                  <td style="text-align: center;">${region.inProgressTickets}</td>
-                  <td style="text-align: center;">${region.resolvedTickets}</td>
-                  <td style="text-align: center; color: #16a34a;">${region.withinSLA || 0}</td>
-                  <td style="text-align: center; color: #dc2626;">${region.outOfSLA || 0}</td>
-                  <td style="text-align: center;">${regionSlaPercentage}%</td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-        
-        <!-- Alarms by Root Cause -->
-        <div class="table-container">
-          <h3>Alarms by Root Cause</h3>
-          <table class="table">
-            <thead>
+                <td>${report.siteCode || report.siteNo || 'N/A'}</td>
+                <td>${report.alarmType || 'N/A'}</td>
+                <td>${this.formatDateTime(report.occurrenceTime)}</td>
+                <td>${durationStr}</td>
+                <td>${report.expectedRestorationTime ? this.formatDateTime(report.expectedRestorationTime) : 'N/A'}</td>
+                <td>${report.mandatoryRestorationTime ? this.formatDateTime(report.mandatoryRestorationTime) : 'N/A'}</td>
+                <td>${report.region || 'N/A'}</td>
+                <td>${statusBadge}</td>
+              </tr>`;
+            }).join('')}
+            ${allReports.filter(report => report.status === 'In Progress' || report.status === 'Open').length === 0 ? 
+              '<tr><td colspan="8" style="text-align: center; padding: 20px 0; color: #6b7280;">No ongoing outages</td></tr>' : ''}
+        </tbody>
+      </table>
+    </div>
+    
+    <!-- Resolved Outages -->
+    <div class="table-container">
+      <h3>Resolved Outages (Last 24h)</h3>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Site</th>
+            <th>Alarm Type</th>
+            <th>Occurrence  Time</th>
+            <th>Resolution Time</th>
+            <th>Duration</th>
+            <th>Region</th>
+            <th>SLA Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${allReports
+            .filter(report => report.status === 'Resolved' || report.status === 'Closed')
+            .sort((a, b) => new Date(b.resolutionTime) - new Date(a.resolutionTime))
+            .slice(0, 20)
+            .map(report => {
+              const startTime = new Date(report.occurrenceTime);
+              const endTime = new Date(report.resolutionTime);
+              const durationMs = endTime - startTime;
+              const durationHours = Math.floor(durationMs / (1000 * 60 * 60));
+              const durationMinutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
+              const durationStr = durationHours > 0 
+                ? `${durationHours}h ${durationMinutes}m` 
+                : `${durationMinutes}m`;
+                
+              // Calculate SLA status
+              const slaHours = 2; // 2-hour SLA
+              const isWithinSla = durationHours <= slaHours;
+              const slaStatus = isWithinSla 
+                ? '<span style="color: #16a34a;">Within SLA</span>' 
+                : '<span style="color: #dc2626;">SLA Breached</span>';
+                
+              return `
               <tr>
-                <th>Root Cause</th>
-                <th style="text-align: right;">Count</th>
-                <th style="text-align: right;">% of Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${alarmsByRootCause.map(cause => {
-                const percentage = Math.round((cause.count / summary.totalReports) * 100);
-                return `
-                <tr>
-                  <td>${cause.rootCause}</td>
-                  <td style="text-align: right;">${cause.count}</td>
-                  <td style="text-align: right;">${percentage}%</td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-        
-        <!-- Ongoing Outages -->
-        <div class="table-container">
-          <h3>Ongoing Outages</h3>
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Site</th>
-                <th>Alarm Type</th>
-                <th>Occurrence Time</th>
-                <th>Duration</th>
-                <th>Expected Restoration</th>
-                <th>Mandatory Restoration</th>
-                <th>Region</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${allReports
-                .filter(report => report.status === 'In Progress' || report.status === 'Open')
-                .slice(0, 10)
-                .map(report => {
-                  const startTime = new Date(report.occurrenceTime);
-                  const endTime = new Date();
-                  const durationMs = endTime - startTime;
-                  const durationHours = Math.floor(durationMs / (1000 * 60 * 60));
-                  const durationMinutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
-                  const durationStr = durationHours > 0 
-                    ? `${durationHours}h ${durationMinutes}m` 
-                    : `${durationMinutes}m`;
-                    
-                  const statusBadge = report.status === 'In Progress'
-                    ? `<span class="badge badge-in-progress">In Progress</span>`
-                    : `<span class="badge badge-open">${report.status}</span>`;
-                    
-                  return `
-                  <tr>
-                    <td>${report.siteCode || report.siteNo || 'N/A'}</td>
-                    <td>${report.alarmType || 'N/A'}</td>
-                    <td>${startTime.toLocaleTimeString()}</td>
-                    <td>${durationStr}</td>
-                    <td>${report.expectedRestorationTime ? new Date(report.expectedRestorationTime).toLocaleTimeString() : 'N/A'}</td>
-                    <td>${report.mandatoryRestorationTime ? new Date(report.mandatoryRestorationTime).toLocaleTimeString() : 'N/A'}</td>
-                    <td>${report.region || 'N/A'}</td>
-                    <td>${statusBadge}</td>
-                  </tr>`;
-                }).join('')}
-                ${allReports.filter(report => report.status === 'In Progress' || report.status === 'Open').length === 0 ? 
-                  '<tr><td colspan="8" style="text-align: center; padding: 20px 0; color: #6b7280;">No ongoing outages</td></tr>' : ''}
-            </tbody>
-          </table>
-        </div>
-        
-        <!-- Resolved Outages -->
-        <div class="table-container">
-          <h3>Resolved Outages (Last 24h)</h3>
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Site</th>
-                <th>Alarm Type</th>
-                <th>Occurrence  Time</th>
-                <th>Resolution Time</th>
-                <th>Duration</th>
-                <th>Region</th>
-                <th>SLA Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${allReports
-                .filter(report => report.status === 'Resolved' || report.status === 'Closed')
-                .sort((a, b) => new Date(b.resolutionTime) - new Date(a.resolutionTime))
-                .slice(0, 20)
-                .map(report => {
-                  const startTime = new Date(report.occurrenceTime);
-                  const endTime = new Date(report.resolutionTime);
-                  const durationMs = endTime - startTime;
-                  const durationHours = Math.floor(durationMs / (1000 * 60 * 60));
-                  const durationMinutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
-                  const durationStr = durationHours > 0 
-                    ? `${durationHours}h ${durationMinutes}m` 
-                    : `${durationMinutes}m`;
-                    
-                  // Calculate SLA status
-                  const slaHours = 2; // 2-hour SLA
-                  const isWithinSla = durationHours <= slaHours;
-                  const slaStatus = isWithinSla 
-                    ? '<span style="color: #16a34a;">Within SLA</span>' 
-                    : '<span style="color: #dc2626;">SLA Breached</span>';
-                    
-                  return `
-                  <tr>
-                    <td>${report.siteCode || report.siteNo || 'N/A'}</td>
-                    <td>${report.alarmType || 'N/A'}</td>
-                    <td>${startTime.toLocaleTimeString()}</td>
-                    <td>${endTime.toLocaleTimeString()}</td>
-                    <td>${durationStr}</td>
-                    <td>${report.region || 'N/A'}</td>
-                    <td>${slaStatus}</td>
-                  </tr>`;
-                }).join('')}
-                ${allReports.filter(report => report.status === 'Resolved' || report.status === 'Closed').length === 0 ? 
-                  '<tr><td colspan="7" style="text-align: center; padding: 20px 0; color: #6b7280;">No resolved outages in the last 24 hours</td></tr>' : ''}
-            </tbody>
-          </table>
-        </div>
-        
-        <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 14px;">
-          <p>This is an automated report. Please do not reply to this email.</p>
-          <p>© ${new Date().getFullYear()} Network Operations Center. All rights reserved.</p>
-        </div>
-      </div>
-    </body>
-    </html>
-    `;
+                <td>${report.siteCode || report.siteNo || 'N/A'}</td>
+                <td>${report.alarmType || 'N/A'}</td>
+                <td>${this.formatDateTime(report.occurrenceTime)}</td>
+                <td>${this.formatDateTime(report.resolutionTime)}</td>
+                <td>${durationStr}</td>
+                <td>${report.region || 'N/A'}</td>
+                <td>${slaStatus}</td>
+              </tr>`;
+            }).join('')}
+            ${allReports.filter(report => report.status === 'Resolved' || report.status === 'Closed').length === 0 ? 
+              '<tr><td colspan="7" style="text-align: center; padding: 20px 0; color: #6b7280;">No resolved outages in the last 24 hours</td></tr>' : ''}
+        </tbody>
+      </table>
+    </div>
+    
+    <!-- Tickets by Region -->
+    <div class="table-container">
+      <h3>Tickets by Region</h3>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Region</th>
+            <th style="text-align: center;">Total</th>
+            <th style="text-align: center;">In Progress</th>
+            <th style="text-align: center;">Resolved</th>
+            <th style="text-align: center;">Within SLA</th>
+            <th style="text-align: center;">Out of SLA</th>
+            <th style="text-align: center;">SLA %</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${ticketsPerRegion.map(region => {
+            const regionSlaPercentage = region.resolvedTickets > 0 
+              ? Math.round((region.withinSLA / region.resolvedTickets) * 100) 
+              : 0;
+              
+            return `
+            <tr>
+              <td>${region.region}</td>
+              <td style="text-align: center;">${region.totalTickets}</td>
+              <td style="text-align: center;">${region.inProgressTickets}</td>
+              <td style="text-align: center;">${region.resolvedTickets}</td>
+              <td style="text-align: center; color: #16a34a;">${region.withinSLA || 0}</td>
+              <td style="text-align: center; color: #dc2626;">${region.outOfSLA || 0}</td>
+              <td style="text-align: center;">${regionSlaPercentage}%</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    
+    <!-- Alarms by Root Cause -->
+    <div class="table-container">
+      <h3>Alarms by Root Cause</h3>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Root Cause</th>
+            <th style="text-align: right;">Count</th>
+            <th style="text-align: right;">% of Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${alarmsByRootCause.map(cause => {
+            const percentage = Math.round((cause.count / summary.totalReports) * 100);
+            return `
+            <tr>
+              <td>${cause.rootCause}</td>
+              <td style="text-align: right;">${cause.count}</td>
+              <td style="text-align: right;">${percentage}%</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    
+    <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 14px;">
+      <p>This is an automated report. Please do not reply to this email.</p>
+      <p>  ${new Date().getFullYear()} Network Operations Center. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
 
     // Create plain text version
     const text = `Daily Network Performance Report - ${dateStr}
@@ -627,7 +649,7 @@ ${alarmsByRootCause.map(cause => {
 Recent Outages:
 ${allReports.slice(0, 10).map(report => {
   const startTime = new Date(report.occurrenceTime);
-  return `${report.siteCode || report.siteNo || 'N/A'} - ${report.alarmType || 'N/A'} - ${startTime.toLocaleTimeString()} - ${report.status}`;
+  return `${report.siteCode || report.siteNo || 'N/A'} - ${report.salarmType || 'N/A'} - ${startTime.toLocaleTimeString()} - ${report.status}`;
 }).join('\n')}
 
 This is an automated report. Please do not reply to this email.

@@ -100,6 +100,11 @@ const outageReportSchema = new mongoose.Schema({
       message: 'Mandatory restoration time must be within the last hour or in the future'
     }
   },
+  slaStatus: {
+    type: String,
+    enum: ['within', 'out', null],
+    default: null
+  },
   status: {
     type: String,
     enum: ['In Progress', 'Resolved'],

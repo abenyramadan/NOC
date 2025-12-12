@@ -1,30 +1,16 @@
-import express from 'express';
-import mongoose from 'mongoose';
-import cors from 'cors';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+// Load environment variables first
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import authRoutes from './routes/auth.js';
-import siteRoutes from './routes/sites.js';
-import alarmRoutes from './routes/alarms.js';
-import auditRoutes from './routes/audit.js';
-import ticketRoutes from './routes/tickets.js';
-import integrationRoutes from './routes/integrations.js';
-import reportsRoutes from './routes/reports.js';
-import outageReportRoutes from './routes/outageReports.js';
-import notificationRoutes from './routes/notificationRoutes.js';
-import OutageReport from './models/OutageReport.js';
-import { config } from 'dotenv';
 
+// Get the current file's directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load environment variables FIRST
+// Load environment variables from .env file
 const envPath = path.join(__dirname, '.env');
 console.log('🔍 Loading environment variables from:', envPath);
-const result = config({ path: envPath });
+const result = dotenv.config({ path: envPath });
 
 if (result.error) {
   console.error('❌ Error loading .env file:', result.error);
@@ -37,15 +23,32 @@ console.log('🔍 SMTP_PASS:', process.env.SMTP_PASS ? 'Set (' + process.env.SMT
 console.log('🔍 FROM_EMAIL:', process.env.FROM_EMAIL || 'NOT SET');
 console.log('🔍 NOC_ALERTS_EMAIL:', process.env.NOC_ALERTS_EMAIL || 'NOT SET');
 
+// Now import other dependencies
+import express from 'express';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+
+// Import the email service getter function
+import { getEmailService } from './services/emailService.js';
+import authRoutes from './routes/auth.js';
+import siteRoutes from './routes/sites.js';
+import alarmRoutes from './routes/alarms.js';
+import auditRoutes from './routes/audit.js';
+import ticketRoutes from './routes/tickets.js';
+import integrationRoutes from './routes/integrations.js';
+import reportsRoutes from './routes/reports.js';
+import outageReportRoutes from './routes/outageReports.js';
+import notificationRoutes from './routes/notificationRoutes.js';
+import OutageReport from './models/OutageReport.js';
+
 // Now import services that depend on environment variables
-const { emailService } = await import('./services/emailService.js');
+const emailService = getEmailService();
 const { alarmProcessor } = await import('./services/alarmProcessor.js');
 const { integrationManager } = await import('./integrations/IntegrationManager.js');
 const { outageReportService } = await import('./services/outageReportService.js');
 const { dailyReportService } = await import('./services/dailyReportService.js');
-
-// Re-initialize email service with the loaded environment variables
-emailService.init();
 
 const app = express();
 const PORT = process.env.PORT || 3000;

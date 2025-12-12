@@ -133,9 +133,11 @@ router.get('/hourly', authenticate, async (req, res) => {
 
     // Calculate SLA metrics from resolved outage reports
     const slaThresholds = {
-      critical: parseInt(process.env.SLA_CRITICAL_MINUTES || '30'),
-      major: parseInt(process.env.SLA_MAJOR_MINUTES || '60'),
-      minor: parseInt(process.env.SLA_MINOR_MINUTES || '120')
+      critical: parseInt(process.env.SLA_CRITICAL_MINUTES || '60'),    // 1 hour
+      major: parseInt(process.env.SLA_MAJOR_MINUTES || '120'),        // 2 hours
+      minor: parseInt(process.env.SLA_MINOR_MINUTES || '240'),        // 4 hours
+      warning: parseInt(process.env.SLA_WARNING_MINUTES || '480'),    // 8 hours
+      info: parseInt(process.env.SLA_INFO_MINUTES || '1440')          // 24 hours
     };
 
     let withinSLA = 0;
@@ -143,6 +145,7 @@ router.get('/hourly', authenticate, async (req, res) => {
     let totalResolutionMinutes = 0;
     let resolvedCount = 0;
 
+    // First, update SLA status for all resolved reports
     for (const report of resolvedOutages) {
       const startTime = report.occurrenceTime;
       const endTime = report.resolutionTime;
@@ -153,18 +156,31 @@ router.get('/hourly', authenticate, async (req, res) => {
         totalResolutionMinutes += durationMinutes;
         resolvedCount++;
 
+        let isWithinSLA = false;
+        
         // Use mandatoryRestorationTime as the SLA deadline if available
         if (mandatoryRestorationTime) {
           const slaDeadline = new Date(mandatoryRestorationTime);
-          
-          if (endTime <= slaDeadline) {
-            withinSLA++;
-          } else {
-            outOfSLA++;
-          }
+          isWithinSLA = endTime <= slaDeadline;
         } else {
-          // If no SLA deadline set, count as out of SLA (or not counted)
-          // For now, we'll not count these in SLA metrics
+          // Fallback to default SLAs based on alarm type
+          const thresholdMinutes = slaThresholds[report.alarmType?.toLowerCase()] || 240; // Default to 4 hours
+          isWithinSLA = durationMinutes <= thresholdMinutes;
+        }
+
+        // Update the SLA status in the database
+        if (report.status === 'Resolved' || report.status === 'Closed') {
+          await OutageReport.findByIdAndUpdate(report._id, {
+            slaStatus: isWithinSLA ? 'within' : 'out',
+            expectedResolutionHours: slaThresholds[report.alarmType?.toLowerCase()] / 60 || 4
+          });
+        }
+
+        // Update counters
+        if (isWithinSLA) {
+          withinSLA++;
+        } else {
+          outOfSLA++;
         }
       }
     }
@@ -313,7 +329,8 @@ router.get('/hourly', authenticate, async (req, res) => {
       console.log('---');
     });
 
-    res.json({
+    // Format the response with all the data including ticketsPerRegion
+    const response = {
       reportHour: startOfPeriod,
       ongoingOutages: ongoingOutages.map(r => ({
         id: r._id,
@@ -337,16 +354,21 @@ router.get('/hourly', authenticate, async (req, res) => {
         region: r.region,
         alarmType: r.alarmType,
         occurrenceTime: r.occurrenceTime,
-        resolutionTime: r.resolutionTime,
         expectedRestorationTime: r.expectedRestorationTime,
         mandatoryRestorationTime: r.mandatoryRestorationTime,
-        supervisor: r.supervisor,
+        resolutionTime: r.resolutionTime,
+        status: r.status,
+        slaStatus: r.slaStatus,
         rootCause: r.rootCause,
         subrootCause: r.subrootCause,
         username: r.username,
-        status: r.status
-      }))  // Close the resolvedOutages.map()
-    });    // Close the res.json()
+        supervisor: r.supervisor
+      })),
+      ticketsPerRegion: ticketsPerRegion
+    };
+
+    console.log('Sending response with ticketsPerRegion count:', response.ticketsPerRegion.length);
+    res.json(response);
   } catch (error) {
     console.error('Error in hourly reports:', error);
     res.status(500).json({ message: 'Server error while fetching hourly reports' });
@@ -410,6 +432,41 @@ router.get('/daily', authenticate, async (req, res) => {
       }
     ]);
 
+    // First, update SLA status for all resolved tickets in this period
+    const resolvedTickets = await OutageReport.find({
+      occurrenceTime: { $gte: startOfDay, $lte: endOfDay },
+      status: { $in: ['Resolved', 'Closed'] }
+    });
+
+    // Update SLA status for each resolved ticket
+    for (const ticket of resolvedTickets) {
+      let isWithinSLA = false;
+      
+      if (ticket.resolutionTime && ticket.mandatoryRestorationTime) {
+        isWithinSLA = ticket.resolutionTime <= ticket.mandatoryRestorationTime;
+      } else if (ticket.resolutionTime && ticket.occurrenceTime) {
+        // Fallback to default SLA based on alarm type
+        const slaThresholds = {
+          'CRITICAL': 60,    // 1 hour
+          'MAJOR': 120,      // 2 hours
+          'MINOR': 240,      // 4 hours
+          'WARNING': 480,    // 8 hours
+          'INFO': 1440       // 24 hours
+        };
+        
+        const durationMinutes = Math.round((ticket.resolutionTime - ticket.occurrenceTime) / (1000 * 60));
+        const threshold = slaThresholds[ticket.alarmType] || 240; // Default to 4 hours
+        isWithinSLA = durationMinutes <= threshold;
+      }
+
+      // Only update if slaStatus is not already set or needs to be updated
+      if (ticket.slaStatus !== (isWithinSLA ? 'within' : 'out')) {
+        await OutageReport.findByIdAndUpdate(ticket._id, {
+          slaStatus: isWithinSLA ? 'within' : 'out'
+        });
+      }
+    }
+
     // Debug: Log the region data before aggregation
     const regionSamples = await OutageReport.distinct('region', {
       occurrenceTime: { $gte: startOfDay, $lte: endOfDay }
@@ -450,11 +507,45 @@ router.get('/daily', authenticate, async (req, res) => {
           resolvedTickets: {
             $sum: { $cond: [{ $in: ['$status', ['Resolved', 'Closed']] }, 1, 0] }
           },
-          // Calculate SLA compliance - simplified to just check slaStatus field
+          // Calculate SLA compliance based on resolution time and mandatory restoration time
           withinSLATickets: {
             $sum: {
               $cond: [
-                { $eq: ['$slaStatus', 'within'] },
+                {
+                  $and: [
+                    { $in: ['$status', ['Resolved', 'Closed']] },
+                    { $ifNull: ['$resolutionTime', false] },
+                    {
+                      $or: [
+                        { $and: [
+                          { $ifNull: ['$mandatoryRestorationTime', false] },
+                          { $lte: ['$resolutionTime', '$mandatoryRestorationTime'] }
+                        ]},
+                        { $and: [
+                          { $not: { $ifNull: ['$mandatoryRestorationTime', true] } },
+                          { $lte: [
+                            { $divide: [
+                              { $subtract: ['$resolutionTime', '$occurrenceTime'] },
+                              60000 // Convert ms to minutes
+                            ]},
+                            {
+                              $switch: {
+                                branches: [
+                                  { case: { $eq: ['$alarmType', 'CRITICAL'] }, then: 60 },
+                                  { case: { $eq: ['$alarmType', 'MAJOR'] }, then: 120 },
+                                  { case: { $eq: ['$alarmType', 'MINOR'] }, then: 240 },
+                                  { case: { $eq: ['$alarmType', 'WARNING'] }, then: 480 },
+                                  { case: { $eq: ['$alarmType', 'INFO'] }, then: 1440 }
+                                ],
+                                default: 240 // Default to 4 hours
+                              }
+                            }
+                          ]}
+                        ]}
+                      ]
+                    }
+                  ]
+                },
                 1,
                 0
               ]
@@ -463,7 +554,41 @@ router.get('/daily', authenticate, async (req, res) => {
           outOfSLATickets: {
             $sum: {
               $cond: [
-                { $eq: ['$slaStatus', 'out'] },
+                {
+                  $and: [
+                    { $in: ['$status', ['Resolved', 'Closed']] },
+                    { $ifNull: ['$resolutionTime', false] },
+                    {
+                      $or: [
+                        { $and: [
+                          { $ifNull: ['$mandatoryRestorationTime', false] },
+                          { $gt: ['$resolutionTime', '$mandatoryRestorationTime'] }
+                        ]},
+                        { $and: [
+                          { $not: { $ifNull: ['$mandatoryRestorationTime', true] } },
+                          { $gt: [
+                            { $divide: [
+                              { $subtract: ['$resolutionTime', '$occurrenceTime'] },
+                              60000 // Convert ms to minutes
+                            ]},
+                            {
+                              $switch: {
+                                branches: [
+                                  { case: { $eq: ['$alarmType', 'CRITICAL'] }, then: 60 },
+                                  { case: { $eq: ['$alarmType', 'MAJOR'] }, then: 120 },
+                                  { case: { $eq: ['$alarmType', 'MINOR'] }, then: 240 },
+                                  { case: { $eq: ['$alarmType', 'WARNING'] }, then: 480 },
+                                  { case: { $eq: ['$alarmType', 'INFO'] }, then: 1440 }
+                                ],
+                                default: 240 // Default to 4 hours
+                              }
+                            }
+                          ]}
+                        ]}
+                      ]
+                    }
+                  ]
+                },
                 1,
                 0
               ]
@@ -595,54 +720,55 @@ router.put('/:id', authenticate, async (req, res) => {
     }
 
     const {
+      rootCause = originalReport.rootCause || 'Others',
+      subrootCause = originalReport.subrootCause || 'Not specified',
+      username = originalReport.username || 'noc-team',
+      resolutionTime = originalReport.resolutionTime || new Date(),
+      status = originalReport.status,
+      expectedRestorationTime = originalReport.expectedRestorationTime,
+      mandatoryRestorationTime = originalReport.mandatoryRestorationTime,
+      expectedResolutionHours = originalReport.expectedResolutionHours,
+      supervisor = originalReport.supervisor || 'Not assigned'
+    } = req.body;
+
+    const updateData = {
       rootCause,
       subrootCause,
       username,
       resolutionTime,
-      expectedResolutionTime,
-      expectedResolutionHours,
+      status,
       expectedRestorationTime,
       mandatoryRestorationTime,
-      status,
+      expectedResolutionHours,
       supervisor
-    } = req.body;
-
-    const updateData = {};
-    
-    // Only update fields that are provided in the request
-    // and only if they're different from current values
-    const setIfChanged = (field, newValue) => {
-      if (newValue !== undefined && JSON.stringify(originalReport[field]) !== JSON.stringify(newValue)) {
-        updateData[field] = newValue;
-      }
     };
 
-    // Update fields only if they're provided and different from current values
-    setIfChanged('rootCause', rootCause);
-    setIfChanged('subrootCause', subrootCause);
-    setIfChanged('username', username);
-    
-    // Handle resolution time - only update if it's a new resolution
-    if (resolutionTime !== undefined && !originalReport.resolutionTime) {
-      updateData.resolutionTime = resolutionTime;
-    }
+    // For new resolutions, ensure we have all required fields
+    if (['Resolved', 'Closed'].includes(status) && !['Resolved', 'Closed'].includes(originalReport.status)) {
+      console.log('🔍 Processing resolution update for report:', {
+        reportId: req.params.id,
+        currentStatus: originalReport.status,
+        newStatus: status,
+        updateData: JSON.stringify(updateData, null, 2)
+      });
 
-    // Handle expected resolution hours
-    const expectedHoursSource = expectedResolutionTime !== undefined ? expectedResolutionTime : expectedResolutionHours;
-    if (expectedHoursSource !== undefined) {
-      const parsedHours = typeof expectedHoursSource === 'string' ? parseFloat(expectedHoursSource) : expectedHoursSource;
-      if (!Number.isNaN(parsedHours) && parsedHours !== originalReport.expectedResolutionHours) {
-        updateData.expectedResolutionHours = parsedHours;
+      // Ensure resolution time is set (default to now if not provided)
+      if (!updateData.resolutionTime) {
+        updateData.resolutionTime = new Date();
+      }
+
+      // Ensure expected resolution hours are set based on alarm type if not provided
+      if (!updateData.expectedResolutionHours) {
+        const slaThresholds = {
+          critical: 4,   // 4 hours for critical
+          major: 8,      // 8 hours for major
+          minor: 24      // 24 hours for minor
+        };
+        
+        const alarmType = (originalReport.alarmType || '').toLowerCase();
+        updateData.expectedResolutionHours = slaThresholds[alarmType] || 24;
       }
     }
-
-    // Only update restoration times if they're being explicitly set or changed
-    setIfChanged('expectedRestorationTime', expectedRestorationTime);
-    setIfChanged('mandatoryRestorationTime', mandatoryRestorationTime);
-    
-    // Only update status if it's being changed
-    setIfChanged('status', status);
-    setIfChanged('supervisor', supervisor);
 
     // If no fields are being updated, return the original report
     if (Object.keys(updateData).length === 0) {

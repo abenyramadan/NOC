@@ -2,23 +2,55 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Clock, TrendingUp, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 
 // Helper function to calculate SLA status based on resolution time and expected hours
-const calculateSlaStatus = (outage) => {
+const calculateSlaStatus = (outage: OutageItem): 'within' | 'out' | 'unknown' => {
   // If SLA status is already set, use it
-  if (outage.slaStatus) {
-    return outage.slaStatus;
+  if ((outage as any).slaStatus) {
+    return (outage as any).slaStatus;
   }
   
-  // If we don't have resolution time or expected hours, can't calculate
-  if (!outage.resolutionTime || !outage.expectedResolutionHours) {
+  // If we don't have resolution time or occurrence time, can't calculate
+  if (!outage.resolutionTime || !outage.occurrenceTime) {
     return 'unknown';
   }
   
   const resolutionTime = new Date(outage.resolutionTime).getTime();
   const occurrenceTime = new Date(outage.occurrenceTime).getTime();
-  const expectedResolutionMs = outage.expectedResolutionHours * 60 * 60 * 1000;
-  const actualResolutionMs = resolutionTime - occurrenceTime;
   
-  return actualResolutionMs <= expectedResolutionMs ? 'within' : 'out';
+  // Handle invalid dates
+  if (isNaN(resolutionTime) || isNaN(occurrenceTime)) {
+    return 'unknown';
+  }
+  
+  const actualResolutionMs = resolutionTime - occurrenceTime;
+
+  // If mandatoryRestorationTime is available, use it for SLA calculation
+  if (outage.mandatoryRestorationTime) {
+    const mandatoryTime = new Date(outage.mandatoryRestorationTime).getTime();
+    if (!isNaN(mandatoryTime)) {
+      return resolutionTime <= mandatoryTime ? 'within' : 'out';
+    }
+  }
+  
+  // If expectedResolutionHours is provided, use it
+  if (outage.expectedResolutionHours && outage.expectedResolutionHours > 0) {
+    const expectedResolutionMs = outage.expectedResolutionHours * 60 * 60 * 1000;
+    return actualResolutionMs <= expectedResolutionMs ? 'within' : 'out';
+  }
+  
+  // Fallback to default SLAs based on alarm type if no expectedResolutionHours
+  const defaultSLAs = {
+    'CRITICAL': 1,   // 1 hour for critical
+    'MAJOR': 2,      // 2 hours for major
+    'MINOR': 4,      // 4 hours for minor
+    'WARNING': 8,    // 8 hours for warning
+    'INFO': 24       // 24 hours for info
+  };
+  
+  const alarmType = (outage.alarmType || 'INFO').toUpperCase() as keyof typeof defaultSLAs;
+  const defaultSLAHours = defaultSLAs[alarmType] || 24; // Default to 24 hours if alarm type not found
+  const defaultSLAMs = defaultSLAHours * 60 * 60 * 1000;
+  
+  return actualResolutionMs <= defaultSLAMs ? 'within' : 'out';
 };
 
 interface NetworkPerformanceReport {
@@ -153,16 +185,23 @@ export const HourlyOutageReports: React.FC = () => {
       }
 
       const data = await response.json();
-      console.log('API Response:', JSON.stringify(data, null, 2));
       
-      // Ensure ticketsPerRegion exists and is an array
+      // Process the data to ensure all required fields are present
       const processedData = {
         ...data,
-        ticketsPerRegion: Array.isArray(data.ticketsPerRegion) ? data.ticketsPerRegion : [],
-        ongoingOutages: Array.isArray(data.ongoingOutages) ? data.ongoingOutages : [],
-        resolvedOutages: Array.isArray(data.resolvedOutages) ? data.resolvedOutages : []
+        resolvedOutages: data.resolvedOutages?.map((outage: any) => ({
+          ...outage,
+          // Ensure all required fields have default values if missing
+          expectedRestorationTime: outage.expectedRestorationTime || null,
+          mandatoryRestorationTime: outage.mandatoryRestorationTime || null,
+          supervisor: outage.supervisor || 'N/A',
+          username: outage.username || 'N/A',
+          rootCause: outage.rootCause || 'N/A',
+          subrootCause: outage.subrootCause || 'N/A',
+          status: outage.status || 'Resolved',
+          alarmType: outage.alarmType || 'INFO'
+        })) || []
       };
-      
       console.log('Processed data:', processedData);
       setReports([processedData]);
     } catch (err) {
@@ -178,15 +217,20 @@ export const HourlyOutageReports: React.FC = () => {
     if (!date) return 'N/A';
     const d = typeof date === 'string' ? new Date(date) : date;
     if (isNaN(d.getTime())) return 'Invalid Date';
-    return d.toLocaleString('en-US', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: true
-    });
+    
+    // Format date as 10/Nov/2025
+    const day = d.getDate().toString().padStart(2, '0');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = monthNames[d.getMonth()];
+    const year = d.getFullYear();
+    
+    // Format time as 02:44 PM
+    const hours = d.getHours();
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12; // Convert 0 to 12 for 12-hour format
+    
+    return `${day}/${month}/${year} ${displayHours}:${minutes} ${ampm}`;
   };
 
   const getAlarmTypeColor = (alarmType: string) => {
@@ -480,21 +524,30 @@ export const HourlyOutageReports: React.FC = () => {
                     {currentReport.resolvedOutages.map((outage) => {
                       const startTime = new Date(outage.occurrenceTime);
                       const endTime = outage.resolutionTime ? new Date(outage.resolutionTime) : null;
-                      const mandatoryRestorationTime = outage.mandatoryRestorationTime ? new Date(outage.mandatoryRestorationTime) : null;
-                      let slaStatus = 'N/A';
-                      let slaColor = 'text-gray-400';
+                      const mandatoryRestorationTime = outage.mandatoryRestorationTime 
+                        ? new Date(outage.mandatoryRestorationTime) 
+                        : null;
                       
-                      if (startTime && endTime && mandatoryRestorationTime && !isNaN(mandatoryRestorationTime.getTime())) {
-                        if (endTime <= mandatoryRestorationTime) {
-                          slaStatus = '✅ Within SLA';
-                          slaColor = 'text-green-500 font-semibold';
-                        } else {
-                          slaStatus = `❌ Out of SLA (${formatDateTime(endTime)} > ${formatDateTime(mandatoryRestorationTime)})`;
-                          slaColor = 'text-red-500 font-semibold';
-                        }
-                      } else {
-                        slaStatus = `⏳ SLA Not Set (${formatDateTime(endTime)})`;
-                        slaColor = 'text-yellow-500 font-semibold';
+                      // Use the calculateSlaStatus helper function
+                      const slaStatus = calculateSlaStatus(outage);
+                      let statusText = 'N/A';
+                      let statusColor = 'text-gray-400';
+                      
+                      // More descriptive status messages
+                      if (!outage.resolutionTime) {
+                        statusText = '⏳ Not Resolved';
+                        statusColor = 'text-yellow-400';
+                      } else if (!mandatoryRestorationTime || isNaN(mandatoryRestorationTime.getTime())) {
+                        statusText = 'ℹ️ SLA Not Set';
+                        statusColor = 'text-blue-400';
+                      } else if (slaStatus === 'within') {
+                        statusText = '✅ Within SLA';
+                        statusColor = 'text-green-500';
+                      } else if (slaStatus === 'out') {
+                        const endTimeFormatted = endTime ? formatDateTime(endTime) : 'N/A';
+                        const mandatoryTimeFormatted = formatDateTime(mandatoryRestorationTime);
+                        statusText = `❌ Out of SLA (${endTimeFormatted} > ${mandatoryTimeFormatted})`;
+                        statusColor = 'text-red-500';
                       }
                       
                       return (
@@ -521,8 +574,8 @@ export const HourlyOutageReports: React.FC = () => {
                         <td className="px-4 py-3 text-sm text-gray-300">
                           {outage.resolutionTime ? formatDateTime(outage.resolutionTime) : 'N/A'}
                         </td>
-                        <td className={`px-4 py-3 text-sm ${slaColor}`}>
-                          {slaStatus}
+                        <td className={`px-4 py-3 text-sm ${statusColor}`}>
+                          {statusText}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-300">
                           {outage.rootCause || 'N/A'}
@@ -552,7 +605,7 @@ export const HourlyOutageReports: React.FC = () => {
             )}
           </div>
 
-          {/* Tickets Per Region */}
+          {/* Tickets Per Region - Moved below Resolved Outages */}
           <div className="bg-[#1e2230] rounded-lg border border-gray-800 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-800 bg-blue-900/20">
               <div className="flex items-center gap-2">

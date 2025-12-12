@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { outageReportService, DailyReportsResponse, OutageReport } from '../services/outageReportService';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -72,14 +72,20 @@ const DailyReports: React.FC = () => {
     if (!date) return 'N/A';
     const d = typeof date === 'string' ? new Date(date) : date;
     if (isNaN(d.getTime())) return 'Invalid Date';
-    return d.toLocaleString('en-US', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+    
+    // Format date as 10/Nov/2025
+    const day = d.getDate().toString().padStart(2, '0');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = monthNames[d.getMonth()];
+    const year = d.getFullYear();
+    
+    // Format time as 02:44 PM
+    const hours = d.getHours();
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12; // Convert 0 to 12 for 12-hour format
+    
+    return `${day}/${month}/${year} ${displayHours}:${minutes} ${ampm}`;
   };
 
   const getAlarmTypeColor = (alarmType: string) => {
@@ -661,103 +667,177 @@ const DailyReports: React.FC = () => {
           </div>
         </div>
 
-        {/* Region Details */}
-        <div className="bg-[#1e2230] rounded-lg p-6 border border-gray-800">
-          <h3 className="text-white text-lg font-semibold mb-4">Region Breakdown</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full rounded-lg overflow-hidden">
-              <thead>
-                <tr className="text-left text-white text-sm">
-                  <th className="py-3 px-4 bg-[#0066ff]">Region</th>
-                  <th className="py-3 px-4 bg-[#0066ff] text-right">Total</th>
-                  <th className="py-3 px-4 bg-[#0066ff] text-right">In Progress</th>
-                  <th className="py-3 px-4 bg-[#0066ff] text-right">Resolved</th>
-                  <th className="py-3 px-4 bg-[#0066ff] text-right">Within SLA</th>
-                  <th className="py-3 px-4 bg-[#0066ff] text-right">Out of SLA</th>
-                  <th className="py-3 px-4 bg-[#0066ff] text-right">SLA %</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-700">
-                {dailyReports.ticketsPerRegion.map((item, index) => {
-                  // Handle both region and _id for backward compatibility
-                  const region = item.region || item._id || 'Unknown';
-                  const withinSLA = item.withinSLATickets || item.within_sla || 0;
-                  const outOfSLA = item.outOfSLATickets || item.out_of_sla || 0;
-                  const slaPercentage = item.resolvedTickets > 0 
-                    ? Math.round((withinSLA / item.resolvedTickets) * 100) 
-                    : 0;
-                  
-                  return (
-                    <tr key={`region-${index}`} className="hover:bg-gray-800/50">
-                      <td className="py-3 text-white font-medium">{region}</td>
-                      <td className="text-center text-blue-400 font-medium">{item.totalTickets}</td>
-                      <td className="text-center text-yellow-400">{item.inProgressTickets}</td>
-                      <td className="text-center text-green-400">{item.resolvedTickets}</td>
-                      <td className="text-center text-green-500">{withinSLA}</td>
-                      <td className="text-center text-red-400">{outOfSLA}</td>
-                      <td className={`text-center font-medium ${
-                        slaPercentage >= 90 ? 'text-green-400' : 
-                        slaPercentage >= 80 ? 'text-yellow-400' : 'text-red-400'
-                      }`}>
-                        {slaPercentage}%
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          
-          {/* Root Cause Analysis by Region */}
-          <div className="mt-6">
-            <h4 className="text-white text-md font-semibold mb-3">Root Cause Analysis by Region</h4>
-            <div className="space-y-4">
-              {dailyReports.ticketsPerRegion.map((item, index) => {
-                // Handle both region and _id for backward compatibility
-                const region = item.region || item._id || 'Unknown';
-                const regionReports = dailyReports.allReports.filter(r => {
-                  const reportRegion = r.region || 'Unknown';
-                  return reportRegion === region;
-                });
-                const rootCauses: { [key: string]: number } = {};
-                
-                regionReports.forEach(report => {
-                  if (['Resolved', 'Closed'].includes(report.status)) {
-                    const rootCause = report.rootCause || 'Not specified';
-                    rootCauses[rootCause] = (rootCauses[rootCause] || 0) + 1;
-                  }
-                });
-                
-                // Skip regions with no root causes
-                if (Object.keys(rootCauses).length === 0) {
-                  return null;
-                }
-                
-                return (
-                  <div key={`region-root-cause-${index}`} className="bg-gray-800/50 p-4 rounded-lg">
-                    <h5 className="text-white font-medium mb-2">{region}</h5>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                      {Object.entries(rootCauses)
-                        .sort(([,a], [,b]) => b - a)
-                        .map(([cause, count]) => (
-                          <div key={cause} className="flex items-center text-sm">
-                            <span className="text-purple-300">{cause}:</span>
-                            <span className="ml-1 font-medium">{count}</span>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                );
-              })}
+        {/* Tickets Per Region */}
+        <div className="bg-[#1e2230] rounded-lg border border-gray-800 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-800 bg-blue-900/20">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-blue-500" />
+              <h3 className="text-xl font-bold text-white">
+                📊 Tickets Per Region ({(dailyReports.ticketsPerRegion || []).length} regions)
+              </h3>
             </div>
           </div>
+
+          {(dailyReports.ticketsPerRegion || []).length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-[#151820] border-b border-gray-800">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Region</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Total Tickets</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">In Progress</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Resolved</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Within SLA</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Out of SLA</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Critical</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Major</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Minor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dailyReports.ticketsPerRegion.map((regionData, index) => {
+                    // Handle both region and _id for backward compatibility
+                    const region = regionData.region || regionData._id || 'Unknown';
+                    // Handle both camelCase and snake_case property names for SLA counts
+                    const withinSLA = Number(regionData.withinSLATickets ?? regionData.within_sla ?? 0);
+                    const outOfSLA = Number(regionData.outOfSLATickets ?? regionData.out_of_sla ?? 0);
+                    // Ensure we have valid numbers
+                    const resolvedTickets = Number(regionData.resolvedTickets ?? 0);
+                    
+                    // Log for debugging
+                    console.log(`Region: ${region}`, {
+                      withinSLATickets: regionData.withinSLATickets,
+                      within_sla: regionData.within_sla,
+                      outOfSLATickets: regionData.outOfSLATickets,
+                      out_of_sla: regionData.out_of_sla,
+                      resolvedTickets: resolvedTickets,
+                      calculatedWithinSLA: withinSLA,
+                      calculatedOutOfSLA: outOfSLA
+                    });
+                    
+                    return (
+                      <tr key={`${region}-${index}`} className="border-b border-gray-800 hover:bg-gray-800/50">
+                        <td className="px-4 py-3 text-sm font-semibold text-white">{region}</td>
+                        <td className="px-4 py-3 text-sm text-blue-400 font-bold">{regionData.totalTickets || 0}</td>
+                        <td className="px-4 py-3 text-sm text-yellow-400">{regionData.inProgressTickets || 0}</td>
+                        <td className="px-4 py-3 text-sm text-green-400">{resolvedTickets}</td>
+                        <td className="px-4 py-3 text-sm text-green-500 font-semibold">
+                          {withinSLA > 0 ? withinSLA : 0}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-red-500 font-semibold">
+                          {outOfSLA > 0 ? outOfSLA : 0}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-red-500 font-semibold">{regionData.criticalAlarms || 0}</td>
+                        <td className="px-4 py-3 text-sm text-orange-500 font-semibold">{regionData.majorAlarms || 0}</td>
+                        <td className="px-4 py-3 text-sm text-yellow-500">{regionData.minorAlarms || 0}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <p className="text-gray-400">No regional ticket data available</p>
+            </div>
+          )}
+        </div>
+        </div>
+      </div>
+      </div>
+
+      {/* Region-wise Analysis - Count-based */}
+      <div className="mt-8">
+        <h2 className="text-2xl font-bold text-white mb-4">Region-wise Analysis</h2>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {dailyReports.ticketsPerRegion.map((regionData) => {
+            const region = regionData.region || regionData._id || 'Unknown';
+            const regionReports = dailyReports.allReports.filter(
+              report => (report.region || 'Unknown') === region
+            );
+            
+            // Count root causes for this region
+            const rootCauseCounts = regionReports.reduce((acc, report) => {
+              const cause = report.rootCause || 'Not specified';
+              acc[cause] = (acc[cause] || 0) + 1;
+              return acc;
+            }, {} as Record<string, number>);
+
+            // SLA Data
+            const withinSLA = Number(regionData.withinSLATickets ?? regionData.within_sla ?? 0);
+            const outOfSLA = Number(regionData.outOfSLATickets ?? regionData.out_of_sla ?? 0);
+            const totalSLA = withinSLA + outOfSLA;
+            const slaPercentage = totalSLA > 0 ? Math.round((withinSLA / totalSLA) * 100) : 0;
+
+            // Sort root causes by count (descending)
+            const sortedCauses = Object.entries(rootCauseCounts)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 3); // Show top 3 causes
+
+            return (
+              <div key={region} className="bg-[#1e2230] rounded-lg p-4 border border-gray-800 hover:border-blue-500 transition-colors">
+                <div className="flex justify-between items-start mb-3">
+                  <h3 className="text-lg font-semibold text-white">{region}</h3>
+                  <div className={`px-2 py-1 rounded text-xs font-medium ${
+                    slaPercentage >= 90 ? 'bg-green-900/30 text-green-400' : 
+                    slaPercentage >= 70 ? 'bg-yellow-900/30 text-yellow-400' : 
+                    'bg-red-900/30 text-red-400'
+                  }`}>
+                    {slaPercentage}% SLA
+                  </div>
+                </div>
+                
+                <div className="space-y-3">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-400 mb-1">SLA Compliance</h4>
+                    <div className="flex items-center space-x-2">
+                      <div className="flex-1 bg-gray-700 rounded-full h-2">
+                        <div 
+                          className="bg-gradient-to-r from-green-500 to-red-500 h-2 rounded-full" 
+                          style={{ width: `${slaPercentage}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-gray-400 w-16 text-right">
+                        {withinSLA}/{totalSLA || '0'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-400 mb-1">Top Causes</h4>
+                    <div className="space-y-1">
+                      {sortedCauses.length > 0 ? (
+                        sortedCauses.map(([cause, count]) => (
+                          <div key={cause} className="flex justify-between text-sm">
+                            <span className="text-gray-300 truncate pr-2">{cause}</span>
+                            <span className="text-gray-400 font-medium">{count}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-sm text-gray-500">No data available</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-800">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-green-400">{withinSLA}</div>
+                      <div className="text-xs text-gray-400">Within SLA</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-red-400">{outOfSLA}</div>
+                      <div className="text-xs text-gray-400">Out of SLA</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
-</div>
-</div>
-
-);
-}
+  );
+};
 
 export { DailyReports };

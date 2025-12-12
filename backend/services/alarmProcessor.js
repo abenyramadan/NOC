@@ -232,11 +232,18 @@ export class AlarmProcessor {
         updatedBy: new mongoose.Types.ObjectId()
       };
 
-      console.log(`📝 [OUTAGE REPORT] Creating outage report with data:`, JSON.stringify(outageReportData, null, 2));
+      console.log(`📝 [OUTAGE REPORT] Creating outage report with data:`, JSON.stringify({
+        ...outageReportData,
+        // Don't log the entire document as it might be too large
+        alarmType: outageReportData.alarmType,
+        severity: alarm.severity,
+        originalAlarmType: alarm.alarmType
+      }, null, 2));
       
       const outageReport = new OutageReport(outageReportData);
       console.log(`💾 [OUTAGE REPORT] Saving outage report to database...`);
       
+      // Add detailed error handling for save operation
       const savedReport = await outageReport.save()
         .then(doc => {
           console.log(`✅ [OUTAGE REPORT] Successfully created outage report:`, {
@@ -253,7 +260,25 @@ export class AlarmProcessor {
             error: error.message,
             code: error.code,
             keyPattern: error.keyPattern,
-            keyValue: error.keyValue
+            keyValue: error.keyValue,
+            errors: error.errors ? Object.entries(error.errors).map(([key, err]) => ({
+              field: key,
+              message: err.message,
+              type: err.kind,
+              value: err.value
+            })) : null,
+            alarmData: {
+              severity: alarm.severity,
+              alarmType: alarm.alarmType,
+              siteId: alarm.siteId,
+              siteName: alarm.siteName
+            },
+            outageReportData: {
+              ...outageReportData,
+              // Don't log the entire document as it might be too large
+              alarmType: outageReportData.alarmType,
+              severity: alarm.severity
+            }
           });
           throw error;
         });

@@ -3,10 +3,10 @@ import Ticket from '../models/Ticket.js';
 
 class EmailService {
   constructor() {
-    console.log('🔧 Initializing Email Service...');
+    console.log('🔧 Creating Email Service instance...');
     this.transporter = null;
     this.isConfigured = false;
-    this.init();
+    // Don't initialize in constructor
   }
 
   init() {
@@ -411,6 +411,21 @@ Please investigate and resolve this alarm as soon as possible.
   }
 }
 
-// Create and export singleton instance
-export const emailService = new EmailService();
+// Singleton instance
+let _instance = null;
+
+// Get or create singleton instance
+export const getEmailService = () => {
+  if (!_instance) {
+    _instance = new EmailService();
+  }
+  // Ensure we have a valid configuration
+  if (!_instance.isConfigured) {
+    _instance.init();
+  }
+  return _instance;
+};
+
+// For backward compatibility
+export const emailService = getEmailService();
 export default EmailService;
