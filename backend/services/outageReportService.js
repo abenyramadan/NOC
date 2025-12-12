@@ -85,35 +85,47 @@ class OutageReportService {
 
       console.log(`📅 Gathering outage reports for current day: ${currentDate.toDateString()} (showing all outages from this date)`);
 
-      // Gather ALL outage reports that occurred on the current date (from midnight to now)
+      // Set to start of day (00:00:00)
       const startOfDay = currentDate; // Midnight of current day
       const endOfDay = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000); // Midnight of next day
 
-      // First, check what alarm types exist in the database for today
-      const alarmTypes = await OutageReport.aggregate([
-        {
-          $match: {
-            occurrenceTime: { $gte: startOfDay, $lt: endOfDay },
-            alarmType: { $exists: true }
-          }
-        },
-        {
-          $group: {
-            _id: '$alarmType',
-            count: { $sum: 1 }
-          }
-        }
-      ]);
-      
-      console.log('Alarm types in database:', JSON.stringify(alarmTypes, null, 2));
-
-      // Now get the actual reports
+      // Get all reports for this day, including unresolved carry-overs and carry-overs resolved today
       const allReportsToday = await OutageReport.find({
-        occurrenceTime: { $gte: startOfDay, $lt: endOfDay }
+        $or: [
+          // Reports that occurred on the selected date
+          { occurrenceTime: { $gte: startOfDay, $lt: endOfDay } },
+          // Reports that were resolved on the selected date (carry-overs resolved today)
+          {
+            resolutionTime: { $gte: startOfDay, $lt: endOfDay },
+            status: { $in: ['Resolved', 'Closed'] }
+          },
+          // Unresolved carry-over outages from previous days
+          {
+            occurrenceTime: { $lt: startOfDay },
+            status: { $in: ['Open', 'In Progress'] }
+          }
+        ]
       }, 'siteCode siteName region alarmType occurrenceTime resolutionTime status expectedRestorationTime mandatoryRestorationTime rootCause subrootCause supervisor username')
       .populate('alarmId')
       .sort({ occurrenceTime: -1 })
       .lean(); // Add .lean() for better performance and to get plain JS objects
+
+      // Categorize reports
+      const newOutages = allReportsToday.filter(report => 
+        report.occurrenceTime >= startOfDay && report.occurrenceTime < endOfDay
+      );
+      
+      const carryOverOutages = allReportsToday.filter(report => 
+        report.occurrenceTime < startOfDay && 
+        (report.status === 'Open' || report.status === 'In Progress')
+      );
+      
+      const resolvedToday = allReportsToday.filter(report => 
+        (report.status === 'Resolved' || report.status === 'Closed') &&
+        report.resolutionTime && 
+        report.resolutionTime >= startOfDay && 
+        report.resolutionTime < endOfDay
+      );
 
       console.log(`🔍 Found ${allReportsToday.length} total outage reports for current day`);
       
@@ -146,7 +158,7 @@ alarmType: report.alarmType,
       let totalResolutionMinutes = 0;
       let resolvedCount = 0;
 
-      for (const report of resolvedOutages) {
+      for (const report of resolvedToday) {
         const startTime = report.occurrenceTime;
         const endTime = report.resolutionTime;
         const expectedHours = report.expectedResolutionHours;
@@ -189,138 +201,30 @@ alarmType: report.alarmType,
 
       const mttr = resolvedCount > 0 ? Math.round(totalResolutionMinutes / resolvedCount) : 0;
 
-      // First, let's check what regions exist in the database
-      console.log('🔍 Checking available regions in the database...');
-      const allOutages = await OutageReport.find({
-        occurrenceTime: { $gte: startOfDay, $lt: endOfDay }
-      }, 'region');
-      
-      console.log('📊 Sample of regions found in the database:', 
-        allOutages.slice(0, 5).map(o => o.region || 'null').join(', '));
-      
-      // Now run the aggregation with more permissive matching
-      console.log('🔍 Running aggregation for tickets per region...');
-      const ticketsPerRegion = await OutageReport.aggregate([
-        {
-          $match: {
-            occurrenceTime: { $gte: startOfDay, $lt: endOfDay },
-            $or: [
-              { region: { $exists: true, $ne: null, $ne: '' } },  // Has a region
-              { 'siteCode': { $exists: true } }  // Or has a site code (we'll derive region from site code if needed)
-            ]
-          }
-        },
-        {
-          $addFields: {
-            // Normalize region - use existing region or derive from site code if possible
-            normalizedRegion: {
-              $cond: [
-                { $and: [
-                  { $or: [{ $eq: ['$region', null] }, { $eq: ['$region', ''] }] },
-                  { $regexMatch: { input: '$siteCode', regex: '^[A-Z]\.[A-Z]\.[A-Z]\..*' } }
-                ]},
-                { $substr: ['$siteCode', 0, 3] },  // Extract region code from site code if pattern matches
-                { $ifNull: ['$region', 'Unknown'] }  // Otherwise use region or 'Unknown'
-              ]
-            }
-          }
-        },
-        {
-          $group: {
-            _id: {
-              $cond: [
-                { $in: ['$normalizedRegion', [null, '']] },
-                'Unknown',
-                '$normalizedRegion'
-              ]
-            },
-            totalTickets: { $sum: 1 },
-            inProgressTickets: {
-              $sum: { $cond: [{ $eq: ['$status', 'In Progress'] }, 1, 0] }
-            },
-            resolvedTickets: {
-              $sum: { $cond: [{ $in: ['$status', ['Resolved', 'Closed']] }, 1, 0] }
-            },
-            withinSLATickets: {
-              $sum: {
-                $cond: [
-                  { 
-                    $and: [
-                      { $in: ['$status', ['Resolved', 'Closed']] },
-                      { $ne: ['$resolutionTime', null] },
-                      { $lt: [
-                          { $divide: [
-                              { $subtract: ['$resolutionTime', '$occurrenceTime'] },
-                              1000 * 60 * 60 // Convert ms to hours
-                          ]},
-                          2 // 2-hour SLA
-                      ]}
-                    ]
-                  },
-                  1,
-                  0
-                ]
-              }
-            },
-            outOfSLATickets: {
-              $sum: {
-                $cond: [
-                  { 
-                    $and: [
-                      { $in: ['$status', ['Resolved', 'Closed']] },
-                      { $ne: ['$resolutionTime', null] },
-                      { $gte: [
-                          { $divide: [
-                              { $subtract: ['$resolutionTime', '$occurrenceTime'] },
-                              1000 * 60 * 60 // Convert ms to hours
-                          ]},
-                          2 // 2-hour SLA
-                      ]}
-                    ]
-                  },
-                  1,
-                  0
-                ]
-              }
-            },
-            criticalAlarms: {
-              $sum: { $cond: [{ $eq: ['$alarmType', 'CRITICAL'] }, 1, 0] }
-            },
-            majorAlarms: {
-              $sum: { $cond: [{ $eq: ['$alarmType', 'MAJOR'] }, 1, 0] }
-            },
-            minorAlarms: {
-              $sum: { $cond: [{ $eq: ['$alarmType', 'MINOR'] }, 1, 0] }
-            },
-            // Add sample sites for debugging
-            sampleSites: { $addToSet: '$siteCode' }
-          }
-        },
-        {
-          $project: {
-            _id: 1,
-            totalTickets: 1,
-            inProgressTickets: 1,
-            resolvedTickets: 1,
-            withinSLATickets: 1,
-            outOfSLATickets: 1,
-            criticalAlarms: 1,
-            majorAlarms: 1,
-            minorAlarms: 1,
-            sampleSites: { $slice: ['$sampleSites', 3] }  // Show up to 3 sample sites per region
-          }
-        },
-        {
-          $sort: { totalTickets: -1 }
+      const regionMap = new Map();
+      for (const report of allReportsToday) {
+        const region = (report.region && String(report.region).trim()) || 'Unknown';
+        if (!regionMap.has(region)) {
+          regionMap.set(region, {
+            region,
+            totalTickets: 0,
+            inProgressTickets: 0,
+            resolvedTickets: 0,
+            criticalAlarms: 0,
+            majorAlarms: 0,
+            minorAlarms: 0
+          });
         }
-      ]);
-      
-      console.log(`📊 Aggregation results (${ticketsPerRegion.length} regions):`);
-      ticketsPerRegion.forEach(region => {
-        console.log(`- ${region._id}: ${region.totalTickets} tickets ` +
-          `(In Progress: ${region.inProgressTickets}, Resolved: ${region.resolvedTickets}) ` +
-          `Samples: ${region.sampleSites?.join(', ') || 'none'}`);
-      });
+        const agg = regionMap.get(region);
+        agg.totalTickets += 1;
+        if (report.status === 'In Progress' || report.status === 'Open') agg.inProgressTickets += 1;
+        if (report.status === 'Resolved' || report.status === 'Closed') agg.resolvedTickets += 1;
+        const sev = (report.alarmType || '').toUpperCase();
+        if (sev === 'CRITICAL') agg.criticalAlarms += 1;
+        if (sev === 'MAJOR') agg.majorAlarms += 1;
+        if (sev === 'MINOR') agg.minorAlarms += 1;
+      }
+      const ticketsPerRegion = Array.from(regionMap.values()).sort((a, b) => b.totalTickets - a.totalTickets);
 
       // Send hourly report email - but only once per hour (database-tracked)
       const existingEmailRecord = await HourlyReportEmail.findOne({ reportHour: reportHour });
@@ -333,14 +237,20 @@ alarmType: report.alarmType,
         const emailResult = await this.sendOutageReportEmail({
           ongoingOutages,
           resolvedOutages,
+          newOutages,
+          carryOverOutages,
+          resolvedToday,
           metrics: {
             totalResolved: resolvedCount,
             withinSLA,
             outOfSLA,
-            mttr
+            mttr,
+            totalNewOutages: newOutages.length,
+            totalCarryOverOutages: carryOverOutages.length,
+            totalResolvedToday: resolvedToday.length
           },
           ticketsPerRegion: ticketsPerRegion.map(item => ({
-            region: item._id,
+            region: item.region,
             totalTickets: item.totalTickets,
             inProgressTickets: item.inProgressTickets,
             resolvedTickets: item.resolvedTickets,
@@ -457,15 +367,21 @@ alarmType: report.alarmType,
    * Generate HTML email template for outage report
    */
   generateEmailTemplate(data) {
-    const { ongoingOutages, resolvedOutages, metrics, ticketsPerRegion, reportHour } = data;
+    const { ongoingOutages, resolvedOutages, newOutages = [], carryOverOutages = [], resolvedToday = [], metrics, ticketsPerRegion, reportHour } = data;
     
-    // Calculate additional metrics
-    const totalTickets = ongoingOutages.length + resolvedOutages.length;
-    const inProgressTickets = ongoingOutages.filter(o => o.status === 'In Progress').length;
-    const resolvedTickets = resolvedOutages.length;
+    // Use the categorized metrics from the data parameter
+    const resolvedTickets = metrics.totalResolvedToday;
+    const inProgressTickets = ongoingOutages.filter(o => o.status === 'In Progress' || o.status === 'Open').length;
+    const totalTickets = inProgressTickets + resolvedTickets;
+
     const resolutionRate = totalTickets > 0 ? Math.round((resolvedTickets / totalTickets) * 100) : 0;
     const slaCompliance = metrics.totalResolved > 0 ? Math.round((metrics.withinSLA / metrics.totalResolved) * 100) : 100;
     const mttrFormatted = `${Math.floor(metrics.mttr / 60)}h ${metrics.mttr % 60}m`;
+
+    // Use the provided carryOverOutages instead of recalculating
+    const todayOngoingOutages = ongoingOutages.filter(o => 
+      !carryOverOutages.some(co => co._id.toString() === o._id.toString())
+    );
 
     const formatDateTime = (date) => {
       if (!date) return 'N/A';
@@ -498,67 +414,71 @@ alarmType: report.alarmType,
         const expectedMinutes = report.expectedResolutionHours * 60;
         const isWithinSLA = actualMinutes <= expectedMinutes;
         return {
-          status: isWithinSLA ? 'Within SLA' : 'Out of SLA',
-          color: isWithinSLA ? '#10b981' : '#ef4444'
+          status: isWithinSLA ? '✅ Within SLA' : '❌ Out of SLA',
+          color: isWithinSLA ? '#059669' : '#dc2626'
         };
       }
       
-      // Fallback to default thresholds if expectedResolutionHours not set
+      // Default SLA thresholds
       const slaThresholds = {
-        critical: 30,    // 30 minutes for critical
-        major: 60,       // 60 minutes for major
-        minor: 120       // 120 minutes for minor
+        'CRITICAL': 60,   // 1 hour
+        'MAJOR': 120,     // 2 hours
+        'MINOR': 240,     // 4 hours
+        'WARNING': 480,   // 8 hours
+        'INFO': 1440      // 24 hours
       };
       
-      const severity = (report.salarmType || '').toLowerCase();
-      const threshold = slaThresholds[severity] || slaThresholds.minor;
-      const isWithinSLA = actualMinutes <= threshold;
+      const alarmType = (report.alarmType || 'INFO').toUpperCase();
+      const expectedMinutes = slaThresholds[alarmType] || 240;
+      const isWithinSLA = actualMinutes <= expectedMinutes;
       
       return {
-        status: isWithinSLA ? 'Within SLA' : 'Out of SLA',
-        color: isWithinSLA ? '#10b981' : '#ef4444'
+        status: isWithinSLA ? '✅ Within SLA' : '❌ Out of SLA',
+        color: isWithinSLA ? '#059669' : '#dc2626'
       };
     };
 
-    // Generate summary cards HTML
+    // Generate Outlook-compatible summary cards HTML using table layout
     const summaryCards = `
-      <div style="display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 20px; margin: 16px 0 24px 0; padding: 8px 0 16px 0; -ms-overflow-style: none; scrollbar-width: none;">
-        <div style="flex: 0 0 auto; width: 150px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); border-radius: 10px; padding: 14px 16px; color: white; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
-          <div style="font-size: 12px; opacity: 0.9; margin-bottom: 6px;">Total Tickets</div>
-          <div style="font-size: 22px; font-weight: 700; line-height: 1.2;">${totalTickets}</div>
-        </div>
-        <div style="flex: 0 0 auto; width: 150px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border-radius: 10px; padding: 14px 16px; color: white; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
-          <div style="font-size: 12px; opacity: 0.9; margin-bottom: 6px;">In Progress</div>
-          <div style="font-size: 22px; font-weight: 700; line-height: 1.2;">${inProgressTickets}</div>
-        </div>
-        <div style="flex: 0 0 auto; width: 150px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 10px; padding: 14px 16px; color: white; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
-          <div style="font-size: 12px; opacity: 0.9; margin-bottom: 6px;">Resolved</div>
-          <div style="font-size: 22px; font-weight: 700; line-height: 1.2;">${resolvedTickets}</div>
-        </div>
-        <div style="flex: 0 0 auto; width: 150px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); border-radius: 10px; padding: 14px 16px; color: white; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
-          <div style="font-size: 12px; opacity: 0.9; margin-bottom: 6px;">Within SLA</div>
-          <div style="font-size: 22px; font-weight: 700; line-height: 1.2;">${metrics.withinSLA || 0}</div>
-        </div>
-        <div style="flex: 0 0 auto; width: 150px; background: linear-gradient(135deg, #ec4899 0%, #db2777 100%); border-radius: 10px; padding: 14px 16px; color: white; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
-          <div style="font-size: 12px; opacity: 0.9; margin-bottom: 6px;">Out of SLA</div>
-          <div style="font-size: 22px; font-weight: 700; line-height: 1.2;">${metrics.outOfSLA || 0}</div>
-        </div>
-        <div style="flex: 0 0 auto; width: 150px; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); border-radius: 10px; padding: 14px 16px; color: white; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
-          <div style="font-size: 12px; opacity: 0.9; margin-bottom: 6px;">SLA Compliance</div>
-          <div style="font-size: 22px; font-weight: 700; line-height: 1.2;">${slaCompliance}%</div>
-        </div>
-      </div>
-      <style>
-        /* Hide scrollbar for Chrome, Safari and Opera */
-        .summary-cards-container::-webkit-scrollbar {
-          display: none;
-        }
-        /* Hide scrollbar for IE, Edge and Firefox */
-        .summary-cards-container {
-          -ms-overflow-style: none;  /* IE and Edge */
-          scrollbar-width: none;  /* Firefox */
-        }
-      </style>
+                  <!-- Summary Cards Row -->
+                  <tr>
+                    <td align="left" valign="top" style="padding: 0 24px 24px 24px;">
+                      <table border="0" cellpadding="0" cellspacing="0" width="100%" style="table-layout: fixed;">
+                        <tr>
+                          <!-- Total Tickets Card -->
+                          <td align="left" valign="top" width="150" style="width: 150px; background-color: #3b82f6; padding: 14px 16px; color: white;">
+                            <div style="font-size: 12px; margin-bottom: 6px; color: #e0e7ff;">Total Tickets</div>
+                            <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${totalTickets}</div>
+                          </td>
+                          <!-- In Progress Card -->
+                          <td align="left" valign="top" width="150" style="width: 150px; background-color: #0ea5e9; padding: 14px 16px; color: white;">
+                            <div style="font-size: 12px; margin-bottom: 6px; color: #bae6fd;">In Progress</div>
+                            <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${inProgressTickets}</div>
+                          </td>
+                          <!-- Carry-Overs Card -->
+                          <td align="left" valign="top" width="150" style="width: 150px; background-color: #f97316; padding: 14px 16px; color: white;">
+                            <div style="font-size: 12px; margin-bottom: 6px; color: #fed7aa;">Carry-Overs</div>
+                            <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${metrics.totalCarryOverOutages || 0}</div>
+                          </td>
+                          <!-- Resolved Today Card -->
+                          <td align="left" valign="top" width="150" style="width: 150px; background-color: #10b981; padding: 14px 16px; color: white;">
+                            <div style="font-size: 12px; margin-bottom: 6px; color: #a7f3d0;">Resolved Today</div>
+                            <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${metrics.totalResolvedToday || 0}</div>
+                          </td>
+                          <!-- MTTR Card -->
+                          <td align="left" valign="top" width="150" style="width: 150px; background-color: #8b5cf6; padding: 14px 16px; color: white;">
+                            <div style="font-size: 12px; margin-bottom: 6px; color: #c4b5fd;">MTTR</div>
+                            <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${mttrFormatted}</div>
+                          </td>
+                          <!-- SLA Compliance Card -->
+                          <td align="left" valign="top" width="150" style="width: 150px; background-color: #ec4899; padding: 14px 16px; color: white;">
+                            <div style="font-size: 12px; margin-bottom: 6px; color: #f9a8d4;">SLA Compliance</div>
+                            <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${slaCompliance}%</div>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
     `;
 
     // Debug: Log the first few reports to check alarm type
@@ -601,362 +521,337 @@ alarmType: report.alarmType,
       `;
     }).join('');
 
-    // Generate resolved outages table
-    const resolvedRows = resolvedOutages.map(report => {
-      const slaStatus = getSlaStatus(report);
-      const duration = formatDuration(report.occurrenceTime, report.resolutionTime);
-      
-      return `
-        <tr style="border-bottom: 1px solid #e5e7eb;" key="resolved-${report._id}">
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.siteCode || 'N/A'}</td>
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.siteName || report.siteNo || report.alarmId?.siteName || 'N/A'}</td>
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.region || 'N/A'}</td>
-          <td style="padding: 12px 16px; color: #1f2937; font-weight: 600; color: ${report.alarmType === 'CRITICAL' ? '#dc2626' : report.alarmType === 'MAJOR' ? '#d97706' : '#b45309'}; font-size: 13px;">
-            ${report.alarmType || 'N/A'}
-          </td>
-          <td style="padding: 12px 16px; color: #6b7280; font-size: 13px;">${formatDateTime(report.occurrenceTime)}</td>
-          <td style="padding: 12px 16px; color: #6b7280; font-size: 13px;">${duration}</td>
-          <td style="padding: 12px 16px; color: #6b7280; font-size: 13px;">${report.resolutionTime ? formatDateTime(report.resolutionTime) : 'N/A'}</td>
-          <td style="padding: 12px 16px; font-size: 13px;">
-            <span style="display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 9999px; background-color: #dcfce7; color: #166534; font-size: 12px; font-weight: 600;">
-              Resolved
-            </span>
-          </td>
-          <td style="padding: 12px 16px; color: ${slaStatus.color}; font-weight: 500; font-size: 13px;">
-            ${slaStatus.status}
-          </td>
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.rootCause || 'N/A'}</td>
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.subrootCause || 'N/A'}</td>
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.supervisor || 'N/A'}</td>
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.username || 'N/A'}</td>
-        </tr>
-      `;
-    }).join('');
 
     
-        // Generate region breakdown HTML
+        // Generate Outlook-compatible region breakdown HTML using table layout
     const regionBreakdown = ticketsPerRegion.length > 0 ? `
-      <div style="margin: 32px 0; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);">
-        <div style="background-color: #1e40af; color: white; padding: 12px 16px; font-weight: 600; font-size: 16px;">
-          📊 Tickets Per Region (${ticketsPerRegion.length} regions)
-        </div>
-        <div style="overflow-x: auto;">
-          <table style="width: 100%; border-collapse: collapse;">
-            <thead>
-              <tr style="background-color: #f3f4f6; text-align: left;">
-                <th style="padding: 12px 16px; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb;">Region</th>
-                <th style="padding: 12px 16px; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; text-align: right;">Total</th>
-                <th style="padding: 12px 16px; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; text-align: right;">In Progress</th>
-                <th style="padding: 12px 16px; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; text-align: right;">Resolved</th>
-                <th style="padding: 12px 16px; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; text-align: right;">Within SLA</th>
-                <th style="padding: 12px 16px; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; text-align: right;">Out of SLA</th>
-                <th style="padding: 12px 16px; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; text-align: right;">Critical</th>
-                <th style="padding: 12px 16px; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; text-align: right;">Major</th>
-                <th style="padding: 12px 16px; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; text-align: right;">Minor</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${ticketsPerRegion.map(region => {
-            const regionSlaPercentage = region.resolvedTickets > 0 
-              ? Math.round((region.withinSLA / region.resolvedTickets) * 100) 
-              : 0;
-                
-                return `
-                  <tr style="border-bottom: 1px solid #e5e7eb;" key="${region.region}">
-                    <td style="padding: 12px 16px; font-weight: 500; color: #1f2937;">${region.region || 'Unknown'}</td>
-                    <td style="padding: 12px 16px; text-align: right; font-weight: 600; color: #1f2937;">${region.totalTickets || 0}</td>
-                    <td style="padding: 12px 16px; text-align: right; color: #d97706;">${inProgress}</td>
-                    <td style="padding: 12px 16px; text-align: right; color: #059669;">${totalResolved}</td>
-                    <td style="text-align: center; color: #16a34a;">${region.withinSLA || 0}</td>
-                    <td style="text-align: center; color: #dc2626;">${region.outOfSLA || 0}</td>
-                    <td style="padding: 12px 16px; text-align: right; color: #dc2626; font-weight: 600;">${criticalAlarms}</td>
-                    <td style="padding: 12px 16px; text-align: right; color: #d97706; font-weight: 600;">${majorAlarms}</td>
-                    <td style="padding: 12px 16px; text-align: right; color: #b45309;">${minorAlarms}</td>
+                  <!-- Region Breakdown -->
+                  <tr>
+                    <td align="left" valign="top" style="padding: 0 24px 24px 24px;">
+                      <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #ffffff; border: 1px solid #e5e7eb;">
+                        <tr>
+                          <td align="left" valign="top" style="padding: 12px 16px; background-color: #1e40af; color: white; font-weight: bold; font-size: 16px;">
+                            Tickets Per Region (${ticketsPerRegion.length} regions)
+                          </td>
+                        </tr>
+                        <tr>
+                          <td align="left" valign="top">
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                              <thead>
+                                <tr style="background-color: #f3f4f6;">
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #374151; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Region</th>
+                                  <th align="right" valign="top" style="padding: 12px 16px; font-weight: bold; color: #374151; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Total</th>
+                                  <th align="right" valign="top" style="padding: 12px 16px; font-weight: bold; color: #374151; border-bottom: 1px solid #e5e7eb; font-size: 14px;">In Progress</th>
+                                  <th align="right" valign="top" style="padding: 12px 16px; font-weight: bold; color: #374151; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Resolved</th>
+                                  <th align="right" valign="top" style="padding: 12px 16px; font-weight: bold; color: #374151; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Critical</th>
+                                  <th align="right" valign="top" style="padding: 12px 16px; font-weight: bold; color: #374151; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Major</th>
+                                  <th align="right" valign="top" style="padding: 12px 16px; font-weight: bold; color: #374151; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Minor</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                ${ticketsPerRegion.map(region => {
+                                const totalResolved = region.resolvedTickets || 0;
+                                const inProgress = region.inProgressTickets || 0;
+                                const criticalAlarms = region.criticalAlarms || 0;
+                                const majorAlarms = region.majorAlarms || 0;
+                                const minorAlarms = region.minorAlarms || 0;
+                                return `
+                                  <tr>
+                                    <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-weight: bold; color: #1f2937; font-size: 14px;">${region.region || 'Unknown'}</td>
+                                    <td align="right" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-weight: bold; color: #1f2937; font-size: 14px;">${region.totalTickets || 0}</td>
+                                    <td align="right" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #d97706; font-size: 14px;">${inProgress}</td>
+                                    <td align="right" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #059669; font-size: 14px;">${totalResolved}</td>
+                                    <td align="right" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #dc2626; font-weight: bold; font-size: 14px;">${criticalAlarms}</td>
+                                    <td align="right" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #d97706; font-weight: bold; font-size: 14px;">${majorAlarms}</td>
+                                    <td align="right" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #b45309; font-size: 14px;">${minorAlarms}</td>
+                                  </tr>`;
+                              }).join('')}
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
                   </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
     ` : '';
 
     return `
-      <!DOCTYPE html>
-      <html>
+      <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+      <html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
         <head>
-          <meta charset="utf-8">
+          <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <meta http-equiv="X-UA-Compatible" content="IE=edge">
           <meta name="x-apple-disable-message-reformatting">
-          <style>
-            /* Reset styles for email clients */
-            body, html {
-              margin: 0 !important;
-              padding: 0 !important;
-              -webkit-text-size-adjust: 100% !important;
-              -ms-text-size-adjust: 100% !important;
-              -webkit-font-smoothing: antialiased !important;
+          <title>NOC Alert System - Hourly Outage Report</title>
+          <!--[if mso]>
+          <xml>
+            <o:OfficeDocumentSettings>
+              <o:AllowPNG/>
+              <o:PixelsPerInch>96</o:PixelsPerInch>
+            </o:OfficeDocumentSettings>
+          </xml>
+          <![endif]-->
+          <style type="text/css">
+            /* Basic reset for email clients */
+            body, table, td, p, a, li, blockquote {
+              -webkit-text-size-adjust: 100%;
+              -ms-text-size-adjust: 100%;
+              font-size: 18px !important;
+              line-height: 1.6 !important;
+              font-weight: 500 !important;
             }
-            body {
-              -webkit-user-select: none;
-              -moz-user-select: none;
-              -ms-user-select: none;
-              user-select: none;
-              font-family: Arial, Helvetica, sans-serif;
-              line-height: 1.6;
-              color: #333333;
-              margin: 0;
-              padding: 0;
-              background-color: #f9fafb;
-              -webkit-font-smoothing: antialiased;
-              font-size: 15px;
-            }
-            /* Force Outlook to provide a "view in browser" message */
-            .ExternalClass {
-              width: 100%;
-            }
-            .ExternalClass,
-            .ExternalClass p,
-            .ExternalClass span,
-            .ExternalClass font,
-            .ExternalClass td,
-            .ExternalClass div {
-              line-height: 100%;
-            }
-            /* Reset spacing for Outlook.com */
             table, td {
               mso-table-lspace: 0pt;
               mso-table-rspace: 0pt;
             }
-            /* Reset spacing for Yahoo Mail */
-            .yshortcuts a {
-              border-bottom: none !important;
+            img {
+              -ms-interpolation-mode: bicubic;
             }
-            /* Responsive styles */
-            @media screen and (max-width: 600px) {
-              .email-container {
-                width: 100% !important;
-                min-width: 320px !important;
-              }
-              .header {
-                padding: 15px !important;
-                text-align: left !important;
-              }
-              .header h1 {
-                font-size: 20px !important;
-                margin-bottom: 5px !important;
-                text-align: left !important;
-                display: block !important;
-              }
-              .header p {
-                text-align: left !important;
-              }
-              .card {
-                margin-bottom: 15px !important;
-              }
-              table {
+            /* Outlook conditional styles */
+            @media screen and (max-width: 480px) {
+              .mobile-full-width {
                 width: 100% !important;
               }
-              .card-body {
-                padding: 0 10px !important;
+              .mobile-text-center {
+                text-align: center !important;
+              }
+              /* Mobile responsive improvements */
+              body, table, td, p, a, li, blockquote {
+                font-size: 18px !important;
+                line-height: 1.6 !important;
+                font-weight: 500 !important;
+              }
+              h1 {
+                font-size: 30px !important;
+              }
+              h2 {
+                font-size: 22px !important;
+              }
+              /* Increase table cell padding for mobile */
+              td[style*="padding: 12px 16px"] {
+                padding: 16px 12px !important;
+              }
+              td[style*="padding: 14px 16px"] {
+                padding: 18px 12px !important;
+              }
+              /* Make status badges larger on mobile */
+              span[style*="padding: 4px 8px"] {
+                padding: 6px 12px !important;
+                font-size: 15px !important;
+                font-weight: 600 !important;
+              }
+              /* Increase header padding on mobile */
+              td[style*="padding: 24px"] {
+                padding: 20px 16px !important;
+              }
+              td[style*="padding: 0 24px 24px 24px"] {
+                padding: 0 16px 20px 16px !important;
               }
             }
-            .header h1 {
-              font-size: 24px;
-              font-weight: 700;
-              margin: 0 0 8px 0;
-              padding: 0;
-              text-align: left;
-              color: #111827;
-              line-height: 1.3;
-            }
-            .header p {
-              opacity: 0.9;
-              font-size: 14px;
-              margin: 0;
-              color: #4b5563;
-            }
-            .card {
-              background: white;
-              border-radius: 8px;
-              box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-              margin-bottom: 24px;
-              overflow: hidden;
-            }
-            .card-header {
-              padding: 16px 24px;
-              border-bottom: 1px solid #e5e7eb;
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              background-color: #f9fafb;
-            }
-            .card-header h2 {
-              font-size: 16px;
-              font-weight: 600;
-              color: #111827;
-              margin: 0;
-              display: flex;
-              align-items: center;
-              gap: 8px;
-            }
-            .card-body {
-              padding: 0;
-              overflow-x: auto;
-            }
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              font-size: 14px;
-              margin: 0;
-            }
-            th {
-              text-align: left;
-              padding: 12px 16px;
-              font-weight: 600;
-              color: #4b5563;
-              background-color: #f9fafb;
-              border-bottom: 1px solid #e5e7eb;
-              white-space: nowrap;
-            }
-            td {
-              padding: 12px 16px;
-              border-bottom: 1px solid #e5e7eb;
-              vertical-align: middle;
-            }
-            tr:last-child td {
-              border-bottom: none;
-            }
-            .status-badge {
-              display: inline-flex;
-              align-items: center;
-              padding: 4px 12px;
-              border-radius: 9999px;
-              font-size: 12px;
-              font-weight: 600;
-              text-transform: capitalize;
-            }
-            .status-open { background-color: #e0f2fe; color: #075985; }
-            .status-in-progress { background-color: #fef3c7; color: #92400e; }
-            .status-resolved { background-color: #dcfce7; color: #166534; }
-            .status-closed { background-color: #e5e7eb; color: #374151; }
-            .sla-within { color: #059669; font-weight: 600; }
-            .sla-out { color: #dc2626; font-weight: 600; }
-            .empty-state {
-              padding: 40px 20px;
-              text-align: center;
-              color: #6b7280;
-              font-size: 14px;
-            }
-            .footer {
-              margin-top: 40px;
-              padding: 20px 0;
-              text-align: center;
-              color: #6b7280;
-              font-size: 12px;
-              border-top: 1px solid #e5e7eb;
-            }
-            .severity-critical { color: #dc2626; font-weight: 600; }
-            .severity-major { color: #d97706; font-weight: 600; }
-            .severity-minor { color: #b45309; font-weight: 600; }
-            .severity-warning { color: #92400e; font-weight: 600; }
           </style>
         </head>
-        <body>
-          <div class="email-container" style="max-width: 800px; margin: 0 auto; padding: 24px; background-color: #ffffff;" contenteditable="false">
-            <div class="header">
-              <h1 style="margin: 0 0 8px 0; padding: 0; color: #1a365d; font-size: 24px; font-weight: 600;">📊 Hourly Outage Report</h1>
-              <p style="margin: 0; color: #4a5568; font-size: 14px;">Generated on ${formatDateTime(new Date())} • ${ongoingOutages.length} Active Outages • ${resolvedOutages.length} Resolved Today</p>
-            </div>
+        <body style="margin: 0; padding: 0; background-color: #f9fafb; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.4; color: #333333;">
+          <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f9fafb;">
+            <tr>
+              <td align="center" valign="top">
+                <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #ffffff;">
+                  <!-- Header -->
+                  <tr>
+                    <td align="left" valign="top" style="padding: 24px;">
+                      <h1 style="margin: 0 0 8px 0; padding: 0; color: #1a365d; font-size: 24px; font-weight: bold;">NOC Hourly Outage Report</h1>
+                      <p style="margin: 0; color: #4a5568; font-size: 14px;">Generated on ${formatDateTime(new Date())} • ${metrics.totalCarryOverOutages || 0} Carry-Over • ${metrics.totalResolvedToday || 0} Resolved</p>
+                    </td>
+                  </tr>
 
-            <!-- Summary Cards -->
-            ${summaryCards}
+                  <!-- Summary Cards -->
+                  ${summaryCards}
 
-        
-            <!-- Ongoing Outages -->
-            <div class="card">
-              <div class="card-header">
-                <h2>🔴 Ongoing Outages (${ongoingOutages.length})</h2>
-              </div>
-              <div class="card-body">
-                ${ongoingOutages.length > 0 ? `
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Site Code</th>
-                        <th>Site Name</th>
-                        <th>Region</th>
-                        <th>Alarm Type</th>
-                        <th>Occurrence Time</th>
-                        <th>Duration</th>
-                        <th>Expected Restoration</th>
-                        <th>Mandatory Restoration</th>
-                        <th>Status</th>
-                        <th>Root Cause</th>
-                        <th>Subroot Cause</th>
-                        <th>Supervisor</th>
-                        <th>Username</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${ongoingRows}
-                    </tbody>
-                  </table>
-                ` : `
-                  <div class="empty-state">
-                    <p>No ongoing outages at this time. All systems operational.</p>
-                  </div>
-                `}
-              </div>
-            </div>
+                  <!-- Carry-Over Outages -->
+                  ${carryOverOutages.length > 0 ? `
+                  <tr>
+                    <td align="left" valign="top" style="padding: 0 24px 24px 24px;">
+                      <table border="0" cellpadding="0" cellspacing="0" width="100%" style="border: 2px solid #f97316; background-color: #fff7ed;">
+                        <tr>
+                          <td align="left" valign="top" style="padding: 16px; background-color: #ffedd5; border-bottom: 1px solid #fed7aa;">
+                            <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #111827;">Carry-Over Outages (${carryOverOutages.length})</h2>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td align="left" valign="top">
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                              <thead>
+                                <tr style="background-color: #f9fafb;">
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Site Code</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Site Name</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Region</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Alarm Type</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Occurrence Time</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Days Open</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                ${carryOverOutages.map(report => {
+                                  const daysOpen = Math.floor((new Date() - new Date(report.occurrenceTime)) / (1000 * 60 * 60 * 24));
+                                  return `
+                                    <tr>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteCode || 'N/A'}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteName || report.siteNo || report.alarmId?.siteName || 'N/A'}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.region || 'N/A'}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937; font-weight: bold; color: ${report.alarmType === 'CRITICAL' ? '#dc2626' : report.alarmType === 'MAJOR' ? '#d97706' : '#b45309'};">${report.alarmType || 'N/A'}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${formatDateTime(report.occurrenceTime)}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${daysOpen} day${daysOpen !== 1 ? 's' : ''}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px;">
+                                        <span style="background-color: #fef3c7; color: #92400e; padding: 4px 8px; font-size: 12px; font-weight: bold;">Carry-Over</span>
+                                      </td>
+                                    </tr>
+                                  `;
+                                }).join('')}
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                  ` : ''}
 
-            <!-- Resolved Outages -->
-            <div class="card">
-              <div class="card-header">
-                <h2>✅ Resolved Outages (${resolvedOutages.length})</h2>
-              </div>
-              <div class="card-body">
-                ${resolvedOutages.length > 0 ? `
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Site Code</th>
-                        <th>Site Name</th>
-                        <th>Region</th>
-                        <th>Alarm Type</th>
-                        <th>Occurrence Time</th>
-                        <th>Duration</th>
-                        <th>Resolution Time</th>
-                        <th>Status</th>
-                        <th>SLA Status</th>
-                        <th>Root Cause</th>
-                        <th>Subroot Cause</th>
-                        <th>Supervisor</th>
-                        <th>Username</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${resolvedRows}
-                    </tbody>
-                  </table>
-                ` : `
-                  <div class="empty-state">
-                    <p>No outages have been resolved yet today.</p>
-                  </div>
-                `}
-              </div>
-            </div>
+                  <!-- Ongoing Outages -->
+                  <tr>
+                    <td align="left" valign="top" style="padding: 0 24px 24px 24px;">
+                      <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #ffffff; border: 1px solid #e5e7eb;">
+                        <tr>
+                          <td align="left" valign="top" style="padding: 16px; background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
+                            <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #111827;">Ongoing Outages (${todayOngoingOutages.length})</h2>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td align="left" valign="top">
+                            ${todayOngoingOutages.length > 0 ? `
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                              <thead>
+                                <tr style="background-color: #f9fafb;">
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Site Code</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Site Name</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Region</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Alarm Type</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Occurrence Time</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Duration</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                ${todayOngoingOutages.map(report => {
+                                  const duration = formatDuration(report.occurrenceTime, new Date());
+                                  return `
+                                    <tr>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteCode || 'N/A'}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteName || report.siteNo || report.alarmId?.siteName || 'N/A'}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.region || 'N/A'}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937; font-weight: bold; color: ${report.alarmType === 'CRITICAL' ? '#dc2626' : report.alarmType === 'MAJOR' ? '#d97706' : '#b45309'};">${report.alarmType || 'N/A'}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${formatDateTime(report.occurrenceTime)}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${duration}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px;">
+                                        <span style="background-color: ${report.status === 'In Progress' ? '#fef3c7' : '#e0f2fe'}; color: ${report.status === 'In Progress' ? '#92400e' : '#075985'}; padding: 4px 8px; font-size: 12px; font-weight: bold;">${report.status}</span>
+                                      </td>
+                                    </tr>
+                                  `;
+                                }).join('')}
+                              </tbody>
+                            </table>
+                            ` : `
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                              <tr>
+                                <td align="center" valign="top" style="padding: 40px 20px; color: #6b7280; font-size: 14px;">
+                                  No ongoing outages at this time. All systems operational.
+                                </td>
+                              </tr>
+                            </table>
+                            `}
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
 
-             <!-- Region Breakdown -->
-            ${ticketsPerRegion && ticketsPerRegion.length > 0 ? regionBreakdown : ''}
+                  <!-- Resolved Today -->
+                  <tr>
+                    <td align="left" valign="top" style="padding: 0 24px 24px 24px;">
+                      <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #ffffff; border: 1px solid #e5e7eb;">
+                        <tr>
+                          <td align="left" valign="top" style="padding: 16px; background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
+                            <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #111827;">Resolved Today (${resolvedToday.length})</h2>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td align="left" valign="top">
+                            ${resolvedToday.length > 0 ? `
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                              <thead>
+                                <tr style="background-color: #f9fafb;">
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Site Code</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Site Name</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Region</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Alarm Type</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Duration</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Status</th>
+                                  <th align="left" valign="top" style="padding: 12px 16px; font-weight: bold; color: #4b5563; border-bottom: 1px solid #e5e7eb; font-size: 12px;">SLA Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                ${resolvedToday.map(report => {
+                                  const duration = formatDuration(report.occurrenceTime, report.resolutionTime);
+                                  const slaStatus = getSlaStatus(report);
+                                  return `
+                                    <tr>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteCode || 'N/A'}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteName || report.siteNo || report.alarmId?.siteName || 'N/A'}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.region || 'N/A'}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937; font-weight: bold; color: ${report.alarmType === 'CRITICAL' ? '#dc2626' : report.alarmType === 'MAJOR' ? '#d97706' : '#b45309'};">${report.alarmType || 'N/A'}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${duration}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px;">
+                                        <span style="background-color: #dcfce7; color: #166534; padding: 4px 8px; font-size: 12px; font-weight: bold;">Resolved</span>
+                                      </td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: ${slaStatus.color}; font-weight: bold;">
+                                        ${slaStatus.status}
+                                      </td>
+                                    </tr>
+                                  `;
+                                }).join('')}
+                              </tbody>
+                            </table>
+                            ` : `
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                              <tr>
+                                <td align="center" valign="top" style="padding: 40px 20px; color: #6b7280; font-size: 14px;">
+                                  No outages have been resolved yet today.
+                                </td>
+                              </tr>
+                            </table>
+                            `}
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
 
+                  <!-- Region Breakdown -->
+                  ${ticketsPerRegion && ticketsPerRegion.length > 0 ? regionBreakdown : ''}
 
-            <div class="footer">
-              <p>This is an automated report generated by NOC Alert System. Please do not reply to this email.</p>
-              <p>For any questions or issues, please contact the NOC team.</p>
-            </div>
-          </div>
+                  <!-- Footer -->
+                  <tr>
+                    <td align="center" valign="top" style="padding: 24px; background-color: #f9fafb; border-top: 1px solid #e5e7eb;">
+                      <p style="margin: 0; color: #6b7280; font-size: 12px; text-align: center;">
+                        This is an automated report generated by NOC Alert System. Please do not reply to this email.<br>
+                        For any questions or issues, please contact the NOC team.
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
         </body>
       </html>
     `;
@@ -1052,6 +947,9 @@ alarmType: report.alarmType,
           updateData.expectedResolutionHours = slaThresholds[alarmType] || 24;
           console.log(`⏱️  Set default expected resolution hours: ${updateData.expectedResolutionHours} (based on alarm type: ${alarmType})`);
         }
+
+        // Preserve mandatoryRestorationTime on resolution. Do not auto-clear.
+        // MRT is a user-entered SLA deadline and should remain stored for reporting.
 
         // Calculate SLA status
         try {

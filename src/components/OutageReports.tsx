@@ -6,54 +6,44 @@ import { Button } from './ui/button';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { outageReportService, OutageReport, OutageReportFilters } from '../services/outageReportService';
+import OutageTable from './OutageTable';
 
 export const OutageReports: React.FC = () => {
   const [reports, setReports] = useState<OutageReport[]>([]);
+  const [carryOverReports, setCarryOverReports] = useState<OutageReport[]>([]);
+  const [todayReports, setTodayReports] = useState<OutageReport[]>([]);
+  const [resolvedTodayReports, setResolvedTodayReports] = useState<OutageReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingReport, setEditingReport] = useState<OutageReport | null>(null);
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [selectedHour, setSelectedHour] = useState<string>(new Date().getHours().toString()); // Default to current hour
+  const [selectedDate, setSelectedDate] = useState<string>(''); // Empty means latest reports
   const [filters, setFilters] = useState<OutageReportFilters>({
     page: 1,
     limit: 50,
     status: 'all',
     region: 'all',
     alarmType: 'all',
-    sortBy: 'occurrenceTime',
-    sortOrder: 'desc'
+    sortBy: 'status', // Prioritize active outages first
+    sortOrder: 'asc'  // 'In Progress' comes before 'Resolved' alphabetically
   });
 
   useEffect(() => {
     fetchReports();
-  }, [filters, selectedDate, selectedHour]);
+  }, [filters, selectedDate]);
 
   const fetchReports = async () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Build filters with hour if selected
-      const queryFilters = { ...filters };
-      if (selectedHour !== 'all') {
-        // Construct reportHour timestamp for the selected date and hour
-        const hourDate = new Date(selectedDate);
-        hourDate.setHours(parseInt(selectedHour), 0, 0, 0);
-        (queryFilters as any).reportHour = hourDate.toISOString();
-      } else {
-        // Filter by date range (whole day)
-        const startDate = new Date(selectedDate);
-        startDate.setHours(0, 0, 0, 0);
-        const endDate = new Date(selectedDate);
-        endDate.setHours(23, 59, 59, 999);
-        (queryFilters as any).startDate = startDate.toISOString();
-        (queryFilters as any).endDate = endDate.toISOString();
-      }
-      
-      const response = await outageReportService.getOutageReports(queryFilters);
-      
-      // Ensure all date fields are proper Date objects
-      const processedReports = response.reports.map(report => ({
+
+      const response = await outageReportService.getOutageReports({
+        ...filters,
+        limit: 1000,
+        sortBy: 'occurrenceTime',
+        sortOrder: 'desc',
+      });
+
+      const processedReports = response.reports.map((report) => ({
         ...report,
         occurrenceTime: new Date(report.occurrenceTime),
         expectedRestorationTime: report.expectedRestorationTime ? new Date(report.expectedRestorationTime) : undefined,
@@ -61,15 +51,43 @@ export const OutageReports: React.FC = () => {
         resolutionTime: report.resolutionTime ? new Date(report.resolutionTime) : undefined,
         createdAt: new Date(report.createdAt),
         updatedAt: new Date(report.updatedAt),
-        reportHour: new Date(report.reportHour),
-        emailSentAt: report.emailSentAt ? new Date(report.emailSentAt) : undefined
       }));
-      
+
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+
+      // Today's ongoing outages: Occurred today AND still in progress
+      const ongoingToday = processedReports.filter((r) => {
+        const occurredToday = r.occurrenceTime >= startOfToday;
+        const isInProgress = ['In Progress', 'Open'].includes(r.status);
+        return occurredToday && isInProgress;
+      });
+
+      // Resolved today outages: Were resolved today (regardless of when they occurred)
+      const resolvedToday = processedReports.filter((r) => {
+        const isResolved = ['Resolved', 'Closed'].includes(r.status);
+        const resolvedTodayCheck = r.resolutionTime && new Date(r.resolutionTime) >= startOfToday;
+        return isResolved && resolvedTodayCheck;
+      });
+
+      // Carry-over outages: Only outages that occurred before today AND are still active
+      const carryOvers = processedReports.filter(
+        (r) =>
+          r.occurrenceTime < startOfToday &&
+          ['In Progress', 'Open'].includes(r.status)
+      );
+
+      setTodayReports(ongoingToday);
+      setResolvedTodayReports(resolvedToday);
+      setCarryOverReports(carryOvers);
       setReports(processedReports);
     } catch (err) {
       console.error('Failed to fetch outage reports:', err);
       setError(err instanceof Error ? err.message : 'Failed to load outage reports');
-      setReports([]); // Clear reports on error
+      setReports([]);
+      setCarryOverReports([]);
+      setTodayReports([]);
+      setResolvedTodayReports([]);
     } finally {
       setLoading(false);
     }
@@ -156,8 +174,17 @@ export const OutageReports: React.FC = () => {
       
       await outageReportService.updateOutageReport(editingReport.id, updateData);
 
-      // Update local state
+      // Update local state in all report categories
       setReports(prev => prev.map(r =>
+        r.id === editingReport.id ? editingReport : r
+      ));
+      setCarryOverReports(prev => prev.map(r =>
+        r.id === editingReport.id ? editingReport : r
+      ));
+      setTodayReports(prev => prev.map(r =>
+        r.id === editingReport.id ? editingReport : r
+      ));
+      setResolvedTodayReports(prev => prev.map(r =>
         r.id === editingReport.id ? editingReport : r
       ));
 
@@ -183,15 +210,15 @@ export const OutageReports: React.FC = () => {
     if (!date) return 'N/A';
     const d = typeof date === 'string' ? new Date(date) : date;
     if (isNaN(d.getTime())) return 'Invalid Date';
-    return d.toLocaleString('en-US', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: true
-    });
+    return format(d, 'dd/MMM/yyyy HH:mm:ss');
+  };
+
+  const formatCarryOverDate = (date: Date | string | null | undefined) => {
+    if (!date) return 'N/A';
+    const d = typeof date === 'string' ? new Date(date) : date;
+    if (isNaN(d.getTime())) return 'Invalid Date';
+    // Format as dd/MMM/yyyy HH:mm (e.g., 10/Nov/2025 14:30)
+    return format(d, 'dd/MMM/yyyy HH:mm');
   };
 
   const getStatusBadgeColor = (status: string) => {
@@ -231,83 +258,84 @@ export const OutageReports: React.FC = () => {
     <div className="space-y-6">
       {/* Header */}
       <div className="mb-8">
-        <h2 className="text-3xl font-bold text-white mb-2">NOCALERT Hourly Outage Report</h2>
-        <p className="text-gray-400">Manage and track network outages with editable fields</p>
+        <h2 className="text-3xl font-bold text-foreground mb-2">NOCALERT Outage Reports</h2>
+        <p className="text-muted-foreground">View and manage outage reports - shows latest active outages by default</p>
       </div>
 
       {/* Date and Hour Filters */}
-      <div className="bg-[#1e2230] rounded-lg p-4 border border-gray-800 mb-4">
+      <div className="bg-card rounded-lg p-4 border border-border mb-4">
         <div className="flex items-center gap-4 flex-wrap">
           <div>
-            <label className="block text-xs text-gray-400 mb-2">📅 Date</label>
-            <Popover>
-              <PopoverTrigger asChild>
+            <label className="block text-xs text-muted-foreground mb-2">📅 Date</label>
+            <div className="flex gap-2">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      'flex-1 justify-start text-left font-normal',
+                      !selectedDate && 'text-muted-foreground'
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {selectedDate ? format(new Date(selectedDate), 'dd/MMM/yyyy') : <span>Show Latest Reports</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate ? new Date(selectedDate) : undefined}
+                    onSelect={(date) => {
+                      if (date) {
+                        setSelectedDate(date.toISOString().split('T')[0]);
+                      } else {
+                        setSelectedDate(''); // Clear date to show latest
+                      }
+                    }}
+                    className=""
+                    classNames={{
+                      day_selected: 'bg-primary hover:bg-primary/90',
+                      day_today: 'bg-accent text-accent-foreground',
+                      day_disabled: 'text-muted-foreground',
+                      day_outside: 'text-muted-foreground',
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+              {selectedDate && (
                 <Button
                   variant="outline"
-                  className={cn(
-                    'w-full justify-start text-left font-normal bg-[#151820] border-gray-700 text-gray-300 hover:bg-[#1e2230]',
-                    !selectedDate && 'text-muted-foreground'
-                  )}
+                  onClick={() => setSelectedDate('')}
+                  className="px-3"
+                  title="Clear date filter to show latest reports"
                 >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {selectedDate ? format(new Date(selectedDate), 'PPP') : <span>Pick a date</span>}
+                  ✕
                 </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0 bg-[#1e2230] border-gray-700">
-                <Calendar
-                  mode="single"
-                  selected={new Date(selectedDate)}
-                  onSelect={(date) => date && setSelectedDate(date.toISOString().split('T')[0])}
-                  className="bg-[#1e2230] text-white"
-                  classNames={{
-                    day_selected: 'bg-cyan-600 hover:bg-cyan-700',
-                    day_today: 'bg-gray-700 text-white',
-                    day_disabled: 'text-gray-500',
-                    day_outside: 'text-gray-500',
-                  }}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-2">🕐 Hour</label>
-            <select
-              value={selectedHour}
-              onChange={(e) => setSelectedHour(e.target.value)}
-              className="bg-[#151820] border border-gray-700 rounded px-3 py-2 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
-            >
-              <option value="all">All Hours</option>
-              {Array.from({ length: 24 }, (_, i) => {
-                const nextHour = (i + 1) % 24;
-                return (
-                  <option key={i} value={i.toString()}>
-                    {i.toString().padStart(2, '0')} to {nextHour.toString().padStart(2, '0')}
-                  </option>
-                );
-              })}
-            </select>
+              )}
+            </div>
           </div>
           <div className="flex-1 flex items-end">
-            <div className="text-sm text-cyan-400 font-medium">
-              {selectedHour === 'all' 
-                ? `📊 Viewing all reports for ${new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`
-                : `📊 Viewing reports for ${new Date(selectedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} from ${selectedHour.padStart(2, '0')} to ${((parseInt(selectedHour) + 1) % 24).toString().padStart(2, '0')}`
-              }
+            <div className="text-sm text-primary font-medium">
+              {selectedDate ? (
+                `📊 Viewing all reports for ${format(new Date(selectedDate), 'dd/MMM/yyyy')}`
+              ) : (
+                `📊 Showing latest ${reports.length} outage reports (most recent first)`
+              )}
             </div>
           </div>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-[#1e2230] rounded-lg p-4 border border-gray-800 mb-6">
+      <div className="bg-card rounded-lg p-4 border border-border mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
-            <label className="block text-xs text-gray-400 mb-2">Status</label>
+            <label className="block text-xs text-muted-foreground mb-2">Status</label>
             <select
               value={filters.status}
               onChange={(e) => handleFilterChange('status', e.target.value)}
-              className="w-full bg-[#151820] border border-gray-700 rounded px-3 py-2 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
+              className="w-full bg-background border border-input rounded px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
             >
               <option value="all">All Status</option>
               <option value="In Progress">In Progress</option>
@@ -317,11 +345,11 @@ export const OutageReports: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs text-gray-400 mb-2">Region</label>
+            <label className="block text-xs text-muted-foreground mb-2">Region</label>
             <select
               value={filters.region}
               onChange={(e) => handleFilterChange('region', e.target.value)}
-              className="w-full bg-[#151820] border border-gray-700 rounded px-3 py-2 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
+              className="w-full bg-background border border-input rounded px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
             >
               <option value="all">All Regions</option>
               <option value="Bahr gha zal">Bahr gha zal</option>
@@ -331,11 +359,11 @@ export const OutageReports: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs text-gray-400 mb-2">Alarm Type</label>
+            <label className="block text-xs text-muted-foreground mb-2">Alarm Type</label>
             <select
               value={filters.alarmType}
               onChange={(e) => handleFilterChange('alarmType', e.target.value)}
-              className="w-full bg-[#151820] border border-gray-700 rounded px-3 py-2 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
+              className="w-full bg-background border border-input rounded px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
             >
               <option value="all">All Types</option>
               <option value="CRITICAL">Critical</option>
@@ -347,7 +375,7 @@ export const OutageReports: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs text-gray-400 mb-2">Sort By</label>
+            <label className="block text-xs text-muted-foreground mb-2">Sort By</label>
             <select
               value={`${filters.sortBy}-${filters.sortOrder}`}
               onChange={(e) => {
@@ -355,8 +383,9 @@ export const OutageReports: React.FC = () => {
                 handleFilterChange('sortBy', sortBy);
                 handleFilterChange('sortOrder', sortOrder);
               }}
-              className="w-full bg-[#151820] border border-gray-700 rounded px-3 py-2 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
+              className="w-full bg-background border border-input rounded px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
             >
+              <option value="status-asc">Active First (In Progress → Resolved)</option>
               <option value="occurrenceTime-desc">Latest First</option>
               <option value="occurrenceTime-asc">Oldest First</option>
               <option value="siteNo-asc">Site No A-Z</option>
@@ -368,312 +397,63 @@ export const OutageReports: React.FC = () => {
         </div>
       </div>
 
-      {/* Reports Table */}
-      <div className="bg-[#1e2230] rounded-lg border border-gray-800 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-800">
-          <h3 className="text-xl font-bold text-white">Outage Reports</h3>
-          <p className="text-sm text-gray-400 mt-1">Showing {reports.length} reports</p>
+      {/* Report Sections */}
+      <div className="space-y-8">
+        <div>
+          <h2 className="text-2xl font-bold text-foreground mb-2">⚡ Carry-Over Outages</h2>
+          <p className="text-muted-foreground mb-4">Ongoing outages from previous days (still unresolved)</p>
+          {carryOverReports.length > 0 ? (
+            <OutageTable
+              reports={carryOverReports}
+              editingReport={editingReport}
+              setEditingReport={setEditingReport}
+              onEdit={handleEdit}
+              onSave={handleSaveEdit}
+              onCancel={handleCancelEdit}
+            />
+          ) : (
+            <p className="text-muted-foreground italic">No carry-over outages 🎉</p>
+          )}
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-[#151820] border-b border-gray-800">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Site No</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Site Code</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Region</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Alarm Type</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Occurrence Time</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Expected Restoration Time</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Mandatory Restoration Time</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Supervisor</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Root Cause</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Subroot Cause</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Username</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Actual Resolution</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Edit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reports
-                .filter(report => report && report.id && typeof report === 'object')
-                .map((report) => (
-                <tr key={report.id} className="border-b border-gray-800 hover:bg-gray-800">
-                  <td className="px-4 py-3 text-sm text-gray-300">{report.siteNo || 'N/A'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-300">{report.siteCode || 'Unknown'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-300">{report.region || 'Unknown'}</td>
-                  <td className={`px-4 py-3 text-sm ${getAlarmTypeColor(report.alarmType)}`}>
-                    {report.alarmType || 'Unknown'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
-                    {report.occurrenceTime ? formatDateTime(report.occurrenceTime) : 'Unknown'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
-                    {editingReport?.id === report.id ? (
-                      <div className="space-y-1">
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                'w-full justify-start text-left font-normal bg-[#151820] border-gray-700 text-gray-300 hover:bg-[#1e2230]',
-                                !editingReport.expectedRestorationTime && 'text-muted-foreground'
-                              )}
-                            >
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {editingReport.expectedRestorationTime ? 
-                                format(editingReport.expectedRestorationTime, 'PPPp') : 
-                                <span>Pick a date and time</span>}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0 bg-[#1e2230] border-gray-700">
-                            <Calendar
-                              mode="single"
-                              selected={editingReport.expectedRestorationTime || undefined}
-                              onSelect={(date) => {
-                                if (date) {
-                                  const current = editingReport.expectedRestorationTime || new Date();
-                                  date.setHours(current.getHours(), current.getMinutes(), 0, 0);
-                                  setEditingReport(prev => prev ? {
-                                    ...prev,
-                                    expectedRestorationTime: date
-                                  } : null);
-                                }
-                              }}
-                              className="bg-[#1e2230] text-white"
-                              classNames={{
-                                day_selected: 'bg-cyan-600 hover:bg-cyan-700',
-                                day_today: 'bg-gray-700 text-white',
-                                day_disabled: 'text-gray-500',
-                                day_outside: 'text-gray-500',
-                              }}
-                              initialFocus
-                            />
-                            <div className="p-3 border-t border-gray-700">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm text-gray-300">Time:</span>
-                                <input
-                                  type="time"
-                                  value={editingReport.expectedRestorationTime ? 
-                                    `${editingReport.expectedRestorationTime.getHours().toString().padStart(2, '0')}:${editingReport.expectedRestorationTime.getMinutes().toString().padStart(2, '0')}` : 
-                                    '00:00'}
-                                  onChange={(e) => {
-                                    if (!editingReport.expectedRestorationTime) return;
-                                    const [hours, minutes] = e.target.value.split(':').map(Number);
-                                    const newDate = new Date(editingReport.expectedRestorationTime);
-                                    newDate.setHours(hours, minutes);
-                                    setEditingReport(prev => prev ? {
-                                      ...prev,
-                                      expectedRestorationTime: newDate
-                                    } : null);
-                                  }}
-                                  className="bg-[#151820] border border-gray-700 rounded px-2 py-1 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
-                                />
-                              </div>
-                            </div>
-                          </PopoverContent>
-                        </Popover>
-                        <div className="text-xs text-amber-400">
-                          ⚠️ Required - Set estimated resolution time
-                        </div>
-                      </div>
-                    ) : (
-                      <span className="text-blue-400 font-semibold">
-                        {report.expectedRestorationTime ? formatDateTime(report.expectedRestorationTime) : 'Not set'}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
-                    {editingReport?.id === report.id ? (
-                      <div className="space-y-1">
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                'w-full justify-start text-left font-normal bg-[#151820] border-gray-700 text-gray-300 hover:bg-[#1e2230]',
-                                !editingReport.mandatoryRestorationTime && 'text-muted-foreground'
-                              )}
-                            >
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {editingReport.mandatoryRestorationTime ? 
-                                format(editingReport.mandatoryRestorationTime, 'PPPp') : 
-                                <span>Pick a date and time</span>}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0 bg-[#1e2230] border-gray-700">
-                            <Calendar
-                              mode="single"
-                              selected={editingReport.mandatoryRestorationTime || undefined}
-                              onSelect={(date) => {
-                                if (date) {
-                                  const current = editingReport.mandatoryRestorationTime || new Date();
-                                  date.setHours(current.getHours(), current.getMinutes(), 0, 0);
-                                  setEditingReport(prev => prev ? {
-                                    ...prev,
-                                    mandatoryRestorationTime: date
-                                  } : null);
-                                }
-                              }}
-                              className="bg-[#1e2230] text-white"
-                              classNames={{
-                                day_selected: 'bg-cyan-600 hover:bg-cyan-700',
-                                day_today: 'bg-gray-700 text-white',
-                                day_disabled: 'text-gray-500',
-                                day_outside: 'text-gray-500',
-                              }}
-                              initialFocus
-                            />
-                            <div className="p-3 border-t border-gray-700">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm text-gray-300">Time:</span>
-                                <input
-                                  type="time"
-                                  value={editingReport.mandatoryRestorationTime ? 
-                                    `${editingReport.mandatoryRestorationTime.getHours().toString().padStart(2, '0')}:${editingReport.mandatoryRestorationTime.getMinutes().toString().padStart(2, '0')}` : 
-                                    '00:00'}
-                                  onChange={(e) => {
-                                    if (!editingReport.mandatoryRestorationTime) return;
-                                    const [hours, minutes] = e.target.value.split(':').map(Number);
-                                    const newDate = new Date(editingReport.mandatoryRestorationTime);
-                                    newDate.setHours(hours, minutes);
-                                    setEditingReport(prev => prev ? {
-                                      ...prev,
-                                      mandatoryRestorationTime: newDate
-                                    } : null);
-                                  }}
-                                  className="bg-[#151820] border border-gray-700 rounded px-2 py-1 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
-                                />
-                              </div>
-                            </div>
-                          </PopoverContent>
-                        </Popover>
-                        <div className="text-xs text-amber-400">
-                          ⚠️ Required - Set SLA deadline
-                        </div>
-                      </div>
-                    ) : (
-                      <span className="text-red-400 font-semibold">
-                        {report.mandatoryRestorationTime ? formatDateTime(report.mandatoryRestorationTime) : 'Not set'}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
-                    {report.supervisor || 'N/A'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
-                    {editingReport?.id === report.id ? (
-                      <select
-                        value={editingReport.rootCause || ''}
-                        onChange={(e) => setEditingReport(prev => prev ? { ...prev, rootCause: e.target.value as any } : null)}
-                        className="w-full bg-[#151820] border border-gray-700 rounded px-2 py-1 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
-                      >
-                        <option value="">Select Root Cause</option>
-                        <option value="Generator">Generator</option>
-                        <option value="Transmission">Transmission</option>
-                        <option value="Radio">Radio</option>
-                        <option value="Environment">Environment</option>
-                        <option value="Others">Others</option>
-                      </select>
-                    ) : (
-                      <span className="italic text-yellow-300">{report.rootCause || 'Not specified'}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
-                    {editingReport?.id === report.id ? (
-                      <input
-                        type="text"
-                        value={editingReport.subrootCause || ''}
-                        onChange={(e) => setEditingReport(prev => prev ? { ...prev, subrootCause: e.target.value } : null)}
-                        placeholder="e.g., Fuel pump failure"
-                        className="w-full bg-[#151820] border border-gray-700 rounded px-2 py-1 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
-                      />
-                    ) : (
-                      <span className="italic text-yellow-300">{report.subrootCause || 'Not specified'}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
-                    {editingReport?.id === report.id ? (
-                      <input
-                        type="text"
-                        value={editingReport.username || ''}
-                        onChange={(e) => setEditingReport(prev => prev ? { ...prev, username: e.target.value } : null)}
-                        placeholder="Enter your username"
-                        className="w-full bg-[#151820] border border-gray-700 rounded px-2 py-1 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
-                      />
-                    ) : (
-                      <span>{report.username || 'N/A'}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
-                    {editingReport?.id === report.id ? (
-                      <input
-                        type="datetime-local"
-                        value={editingReport.resolutionTime ? editingReport.resolutionTime.toISOString().slice(0, 16) : ''}
-                        onChange={(e) => setEditingReport(prev => prev ? {
-                          ...prev,
-                          resolutionTime: e.target.value ? new Date(e.target.value) : undefined
-                        } : null)}
-                        className="w-full bg-[#151820] border border-gray-700 rounded px-2 py-1 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
-                      />
-                    ) : (
-                      report.resolutionTime ? formatDateTime(report.resolutionTime) : 'Not Resolved'
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {editingReport?.id === report.id ? (
-                      <div className="space-y-1">
-                        <select
-                          value={editingReport.status || ''}
-                          onChange={(e) => setEditingReport(prev => prev ? { ...prev, status: e.target.value as any } : null)}
-                          className="w-full bg-[#151820] border border-gray-700 rounded px-2 py-1 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
-                        >
-                          <option value="In Progress">In Progress</option>
-                          <option value="Resolved">Resolved</option>
-                        </select>
-                      </div>
-                    ) : (
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadgeColor(report.status)}`}>
-                        {report.status || 'Unknown'}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {editingReport?.id === report.id ? (
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={handleSaveEdit}
-                          className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={handleCancelEdit}
-                          className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => handleEdit(report)}
-                        className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
-                      >
-                        Edit
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div>
+          <h2 className="text-2xl font-bold text-foreground mb-2">🔥 Today's Ongoing Outages</h2>
+          <p className="text-muted-foreground mb-4">Incidents that started today and are still in progress</p>
+          {todayReports.length > 0 ? (
+            <OutageTable
+              reports={todayReports}
+              editingReport={editingReport}
+              setEditingReport={setEditingReport}
+              onEdit={handleEdit}
+              onSave={handleSaveEdit}
+              onCancel={handleCancelEdit}
+            />
+          ) : (
+            <p className="text-muted-foreground italic">No ongoing outages from today.</p>
+          )}
+        </div>
+
+        <div>
+          <h2 className="text-2xl font-bold text-foreground mb-2">✅ Resolved Today Outages</h2>
+          <p className="text-muted-foreground mb-4">Outages that were resolved today (including carry-over outages resolved today)</p>
+          {resolvedTodayReports.length > 0 ? (
+            <OutageTable
+              reports={resolvedTodayReports}
+              editingReport={editingReport}
+              setEditingReport={setEditingReport}
+              onEdit={handleEdit}
+              onSave={handleSaveEdit}
+              onCancel={handleCancelEdit}
+            />
+          ) : (
+            <p className="text-muted-foreground italic">No outages resolved today.</p>
+          )}
         </div>
       </div>
 
-      {reports.length === 0 && (
+      {todayReports.length === 0 && carryOverReports.length === 0 && resolvedTodayReports.length === 0 && (
         <div className="text-center py-12">
-          <p className="text-gray-400">No outage reports found matching the current filters.</p>
+          <p className="text-muted-foreground">No outage reports found matching the current filters.</p>
         </div>
       )}
     </div>

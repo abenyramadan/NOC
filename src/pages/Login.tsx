@@ -48,7 +48,7 @@ const Login: React.FC = () => {
       case 'operator':
         return <User className="w-4 h-4 text-green-400" />;
       default:
-        return <User className="w-4 h-4 text-gray-400" />;
+        return <User className="w-4 h-4 text-muted-foreground" />;
     }
   };
 
@@ -68,24 +68,24 @@ const Login: React.FC = () => {
   // If user is already authenticated, show user info instead of login form
   if (user) {
     return (
-      <div className="min-h-screen bg-[#151820] flex items-center justify-center p-4">
-        <Card className="w-full max-w-md bg-[#1e2230] border-gray-800">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl text-center text-white">
+            <CardTitle className="text-2xl text-center text-foreground">
               Welcome Back!
             </CardTitle>
-            <CardDescription className="text-center text-gray-400">
+            <CardDescription className="text-center text-muted-foreground">
               You are successfully logged in
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="flex items-center gap-4 p-4 bg-[#151820] rounded-lg">
+            <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
               <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-semibold text-lg">
                 {user.username.charAt(0).toUpperCase()}
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold text-white">{user.name || user.username}</h3>
-                <p className="text-sm text-gray-400">{user.email}</p>
+                <h3 className="text-lg font-semibold text-foreground">{user.name || user.username}</h3>
+                <p className="text-sm text-muted-foreground">{user.email}</p>
               </div>
             </div>
 
@@ -98,7 +98,7 @@ const Login: React.FC = () => {
               </span>
             </div>
 
-            <div className="space-y-2 text-sm text-gray-400">
+            <div className="space-y-2 text-sm text-muted-foreground">
               <div className="flex justify-between">
                 <span>Account Status:</span>
                 <span className={user.isActive ? 'text-green-400' : 'text-red-400'}>
@@ -107,7 +107,7 @@ const Login: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>Last Login:</span>
-                <span className="text-gray-300">
+                <span className="text-foreground">
                   {user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Never'}
                 </span>
               </div>
@@ -116,7 +116,7 @@ const Login: React.FC = () => {
             <Button
               onClick={logout}
               variant="outline"
-              className="w-full border-gray-700 text-gray-300 hover:bg-gray-800"
+              className="w-full"
             >
               <LogOut className="w-4 h-4 mr-2" />
               Sign Out
@@ -128,20 +128,20 @@ const Login: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#151820] flex items-center justify-center p-4">
-      <Card className="w-full max-w-md bg-[#1e2230] border-gray-800">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl text-center text-white">
+          <CardTitle className="text-2xl text-center text-foreground">
             NOC Alert System
           </CardTitle>
-          <CardDescription className="text-center text-gray-400">
+          <CardDescription className="text-center text-muted-foreground">
             Sign in to access the Network Operations Center
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username" className="text-gray-300">
+              <Label htmlFor="username" className="text-foreground">
                 Username
               </Label>
               <Input
@@ -151,12 +151,12 @@ const Login: React.FC = () => {
                 placeholder="Enter your username"
                 value={credentials.username}
                 onChange={handleChange}
-                className="bg-[#151820] border-gray-700 text-white placeholder-gray-500"
+                className=""
                 disabled={isLoading}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-gray-300">
+              <Label htmlFor="password" className="text-foreground">
                 Password
               </Label>
               <Input
@@ -166,7 +166,7 @@ const Login: React.FC = () => {
                 placeholder="Enter your password"
                 value={credentials.password}
                 onChange={handleChange}
-                className="bg-[#151820] border-gray-700 text-white placeholder-gray-500"
+                className=""
                 disabled={isLoading}
               />
             </div>
@@ -179,7 +179,7 @@ const Login: React.FC = () => {
             )}
             <Button
               type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700"
+              className="w-full"
               disabled={isLoading}
             >
               {isLoading ? (

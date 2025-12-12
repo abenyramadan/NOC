@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export interface Alarm {
   id: string;
@@ -69,7 +69,7 @@ class AlarmManagementService {
       if (params?.sortBy) queryParams.append('sortBy', params.sortBy);
       if (params?.sortOrder) queryParams.append('sortOrder', params.sortOrder);
 
-      const url = `${API_BASE_URL}/alarms${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const url = `${API_BASE_URL}/api/alarms${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
 
       const response = await fetch(url, {
         method: 'GET',
@@ -90,7 +90,7 @@ class AlarmManagementService {
 
   async getAlarmById(id: string): Promise<Alarm> {
     try {
-      const response = await fetch(`${API_BASE_URL}/alarms/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/alarms/${id}`, {
         method: 'GET',
         headers: this.getAuthHeaders(),
       });
@@ -109,7 +109,7 @@ class AlarmManagementService {
 
   async createAlarm(alarmData: CreateAlarmRequest): Promise<Alarm> {
     try {
-      const response = await fetch(`${API_BASE_URL}/alarms`, {
+      const response = await fetch(`${API_BASE_URL}/api/alarms`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(alarmData),
@@ -130,7 +130,7 @@ class AlarmManagementService {
 
   async updateAlarm(id: string, alarmData: UpdateAlarmRequest): Promise<Alarm> {
     try {
-      const response = await fetch(`${API_BASE_URL}/alarms/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/alarms/${id}`, {
         method: 'PUT',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(alarmData),
@@ -151,7 +151,7 @@ class AlarmManagementService {
 
   async deleteAlarm(id: string): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE_URL}/alarms/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/alarms/${id}`, {
         method: 'DELETE',
         headers: this.getAuthHeaders(),
       });
@@ -183,7 +183,7 @@ class AlarmManagementService {
     }>;
   }> {
     try {
-      const response = await fetch(`${API_BASE_URL}/alarms/stats/summary`, {
+      const response = await fetch(`${API_BASE_URL}/api/alarms/stats/summary`, {
         method: 'GET',
         headers: this.getAuthHeaders(),
       });

@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export interface User {
   id: string;
@@ -39,7 +39,7 @@ class UserManagementService {
 
   async getAllUsers(): Promise<User[]> {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/users`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/users`, {
         method: 'GET',
         headers: this.getAuthHeaders(),
       });
@@ -58,7 +58,7 @@ class UserManagementService {
 
   async createUser(userData: CreateUserRequest): Promise<User> {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/users`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/users`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(userData),
@@ -79,7 +79,7 @@ class UserManagementService {
 
   async updateUser(id: string, userData: UpdateUserRequest): Promise<User> {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/users/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/users/${id}`, {
         method: 'PUT',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(userData),
@@ -100,7 +100,7 @@ class UserManagementService {
 
   async deleteUser(id: string): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/users/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/users/${id}`, {
         method: 'DELETE',
         headers: this.getAuthHeaders(),
       });

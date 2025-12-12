@@ -30,8 +30,8 @@ export const AlarmChart: React.FC<AlarmChartProps> = ({ alarms, showAllHistory =
   const maxCount = Math.max(...Object.values(severityCounts));
 
   return (
-    <div className="bg-[#1e2230] rounded-lg border border-gray-800 p-6">
-      <h3 className="text-xl font-bold text-white mb-6">Active Alarms by Severity</h3>
+    <div className="bg-card rounded-lg border border-border p-6">
+      <h3 className="text-xl font-bold text-foreground mb-6">Active Alarms by Severity</h3>
       
       <div className="space-y-4">
         {Object.entries(severityCounts).map(([severity, count]) => {
@@ -49,8 +49,8 @@ export const AlarmChart: React.FC<AlarmChartProps> = ({ alarms, showAllHistory =
           return (
             <div key={severity}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-300 capitalize">{severity}</span>
-                <span className="text-sm text-gray-400">{count} ({percentage.toFixed(1)}%)</span>
+                <span className="text-sm text-muted-foreground capitalize">{severity}</span>
+                <span className="text-sm text-muted-foreground">{count} ({percentage.toFixed(1)}%)</span>
               </div>
               <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
                 <div 
@@ -63,9 +63,9 @@ export const AlarmChart: React.FC<AlarmChartProps> = ({ alarms, showAllHistory =
         })}
       </div>
 
-      <div className="mt-6 pt-6 border-t border-gray-700 text-center">
-        <p className="text-3xl font-bold text-white">{total}</p>
-        <p className="text-sm text-gray-400">
+      <div className="mt-6 pt-6 border-t border-border text-center">
+        <p className="text-3xl font-bold text-foreground">{total}</p>
+        <p className="text-sm text-muted-foreground">
           {showAllHistory ? 'Total Active Alarms' : "Today's Active Alarms"}
         </p>
       </div>

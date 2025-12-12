@@ -160,7 +160,7 @@ export const UserManagement: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );
   }
@@ -169,15 +169,15 @@ export const UserManagement: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">User Management</h2>
-          <p className="text-gray-400 mt-1">Manage NOC team access and permissions</p>
+          <h2 className="text-2xl font-bold text-foreground">User Management</h2>
+          <p className="text-muted-foreground mt-1">Manage NOC team access and permissions</p>
         </div>
         <button
           onClick={() => {
             resetForm();
             setShowAddModal(true);
           }}
-          className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded transition-colors"
+          className="px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded transition-colors"
         >
           + Add User
         </button>
@@ -189,31 +189,31 @@ export const UserManagement: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-[#1e2230] rounded-lg border border-gray-800 overflow-hidden">
+      <div className="bg-card rounded-lg border border-border overflow-hidden">
         <table className="w-full">
-          <thead className="bg-[#151820] border-b border-gray-800">
+          <thead className="bg-background border-b border-border">
             <tr>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Name</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Username</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Email</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Role</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Last Login</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Status</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Actions</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Name</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Username</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Email</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Role</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Last Login</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Status</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Actions</th>
             </tr>
           </thead>
           <tbody>
             {users.map(user => (
-              <tr key={user.id} className="border-b border-gray-800 hover:bg-gray-800/50">
-                <td className="px-6 py-4 text-sm text-white">{user.name || user.username}</td>
-                <td className="px-6 py-4 text-sm text-gray-400">{user.username}</td>
-                <td className="px-6 py-4 text-sm text-gray-400">{user.email}</td>
+              <tr key={user.id} className="border-b border-border hover:bg-accent">
+                <td className="px-6 py-4 text-sm text-foreground">{user.name || user.username}</td>
+                <td className="px-6 py-4 text-sm text-muted-foreground">{user.username}</td>
+                <td className="px-6 py-4 text-sm text-muted-foreground">{user.email}</td>
                 <td className="px-6 py-4">
                   <span className={`px-2 py-1 rounded text-xs font-semibold border ${roleColors[user.role]}`}>
                     {user.role.toUpperCase()}
                   </span>
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-400">
+                <td className="px-6 py-4 text-sm text-muted-foreground">
                   {user.lastLogin ? formatLastLogin(user.lastLogin) : 'Never'}
                 </td>
                 <td className="px-6 py-4">
@@ -224,7 +224,7 @@ export const UserManagement: React.FC = () => {
                 <td className="px-6 py-4">
                   <button
                     onClick={() => handleEdit(user)}
-                    className="text-cyan-400 hover:text-cyan-300 text-sm mr-3"
+                    className="text-primary hover:text-primary/80 text-sm mr-3"
                   >
                     Edit
                   </button>
@@ -246,43 +246,43 @@ export const UserManagement: React.FC = () => {
       {/* Add/Edit User Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-[#1e2230] p-6 rounded-lg border border-gray-800 w-full max-w-md">
-            <h3 className="text-lg font-semibold text-white mb-4">
+          <div className="bg-card p-6 rounded-lg border border-border w-full max-w-md">
+            <h3 className="text-lg font-semibold text-foreground mb-4">
               {editingUser ? 'Edit User' : 'Add New User'}
             </h3>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Name</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Name</label>
                 <input
                   type="text"
                   value={formData.name}
                   onChange={(e) => handleInputChange('name', e.target.value)}
-                  className={`w-full px-3 py-2 bg-[#151820] border rounded text-white ${formErrors.name ? 'border-red-500' : 'border-gray-700'}`}
+                  className={`w-full px-3 py-2 bg-background border rounded text-foreground ${formErrors.name ? 'border-red-500' : 'border-input'}`}
                   placeholder="Enter full name"
                 />
                 {formErrors.name && <p className="text-red-400 text-sm mt-1">{formErrors.name}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Username</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Username</label>
                 <input
                   type="text"
                   value={formData.username}
                   onChange={(e) => handleInputChange('username', e.target.value)}
-                  className={`w-full px-3 py-2 bg-[#151820] border rounded text-white ${formErrors.username ? 'border-red-500' : 'border-gray-700'}`}
+                  className={`w-full px-3 py-2 bg-background border rounded text-foreground ${formErrors.username ? 'border-red-500' : 'border-input'}`}
                   placeholder="Enter username"
                 />
                 {formErrors.username && <p className="text-red-400 text-sm mt-1">{formErrors.username}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Email</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Email</label>
                 <input
                   type="email"
                   value={formData.email}
                   onChange={(e) => handleInputChange('email', e.target.value)}
-                  className={`w-full px-3 py-2 bg-[#151820] border rounded text-white ${formErrors.email ? 'border-red-500' : 'border-gray-700'}`}
+                  className={`w-full px-3 py-2 bg-background border rounded text-foreground ${formErrors.email ? 'border-red-500' : 'border-input'}`}
                   placeholder="Enter email address"
                 />
                 {formErrors.email && <p className="text-red-400 text-sm mt-1">{formErrors.email}</p>}
@@ -290,12 +290,12 @@ export const UserManagement: React.FC = () => {
 
               {!editingUser && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Password</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1">Password</label>
                   <input
                     type="password"
                     value={formData.password}
                     onChange={(e) => handleInputChange('password', e.target.value)}
-                    className={`w-full px-3 py-2 bg-[#151820] border rounded text-white ${formErrors.password ? 'border-red-500' : 'border-gray-700'}`}
+                    className={`w-full px-3 py-2 bg-background border rounded text-foreground ${formErrors.password ? 'border-red-500' : 'border-input'}`}
                     placeholder="Enter password"
                   />
                   {formErrors.password && <p className="text-red-400 text-sm mt-1">{formErrors.password}</p>}
@@ -303,11 +303,11 @@ export const UserManagement: React.FC = () => {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Role</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Role</label>
                 <select
                   value={formData.role}
                   onChange={(e) => handleInputChange('role', e.target.value as any)}
-                  className="w-full px-3 py-2 bg-[#151820] border border-gray-700 rounded text-white"
+                  className="w-full px-3 py-2 bg-background border border-input rounded text-foreground"
                 >
                   <option value="viewer">Viewer</option>
                   <option value="operator">Operator</option>
@@ -323,14 +323,14 @@ export const UserManagement: React.FC = () => {
                     setShowAddModal(false);
                     resetForm();
                   }}
-                  className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded transition-colors"
+                  className="flex-1 px-4 py-2 bg-accent hover:bg-accent/90 text-accent-foreground rounded transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="flex-1 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded transition-colors"
+                  className="flex-1 px-4 py-2 bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-primary-foreground rounded transition-colors"
                 >
                   {submitting ? 'Saving...' : (editingUser ? 'Update' : 'Create')}
                 </button>

@@ -8,14 +8,14 @@ export const Reports: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Tab Navigation */}
-      <div className="bg-[#1e2230] rounded-lg p-4 border border-gray-800">
+      <div className="bg-card rounded-lg p-4 border border-border">
         <div className="flex space-x-4">
           <button
             onClick={() => setActiveTab('daily')}
             className={`px-4 py-2 rounded transition-colors ${
               activeTab === 'daily'
-                ? 'bg-cyan-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:bg-accent'
             }`}
           >
             📊 Daily Reports
@@ -24,8 +24,8 @@ export const Reports: React.FC = () => {
             onClick={() => setActiveTab('historical')}
             className={`px-4 py-2 rounded transition-colors ${
               activeTab === 'historical'
-                ? 'bg-cyan-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:bg-accent'
             }`}
           >
             📈 Historical Reports

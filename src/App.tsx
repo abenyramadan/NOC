@@ -21,8 +21,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredPermission?:
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#151820] flex items-center justify-center">
-        <div className="text-white text-lg">Loading...</div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-foreground text-lg">Loading...</div>
       </div>
     );
   }
@@ -33,10 +33,10 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredPermission?:
 
   if (!canView(requiredPermission)) {
     return (
-      <div className="min-h-screen bg-[#151820] flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-white mb-4">Access Denied</h2>
-          <p className="text-gray-400">You don't have permission to access this resource.</p>
+          <h2 className="text-2xl font-bold text-foreground mb-4">Access Denied</h2>
+          <p className="text-muted-foreground">You don't have permission to access this resource.</p>
         </div>
       </div>
     );

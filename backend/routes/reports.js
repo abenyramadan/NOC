@@ -389,6 +389,80 @@ router.get('/historical', authenticate, async (req, res) => {
       ? Math.round((withinSLA / totalResolvedForSLA) * 100)
       : 0;
 
+    // Calculate region statistics
+    const regionStats = await OutageReport.aggregate([
+      {
+        $match: {
+          ...filters,
+          occurrenceTime: { $exists: true, $ne: null }
+        }
+      },
+      {
+        $group: {
+          _id: '$region',
+          totalTickets: { $sum: 1 },
+          inProgressTickets: {
+            $sum: {
+              $cond: [
+                { $in: ['$status', ['Open', 'In Progress']] },
+                1,
+                0
+              ]
+            }
+          },
+          resolvedTickets: {
+            $sum: {
+              $cond: [
+                { $in: ['$status', ['Resolved', 'Closed']] },
+                1,
+                0
+              ]
+            }
+          },
+          criticalAlarms: {
+            $sum: {
+              $cond: [
+                { $eq: ['$alarmType', 'CRITICAL'] },
+                1,
+                0
+              ]
+            }
+          },
+          majorAlarms: {
+            $sum: {
+              $cond: [
+                { $eq: ['$alarmType', 'MAJOR'] },
+                1,
+                0
+              ]
+            }
+          },
+          minorAlarms: {
+            $sum: {
+              $cond: [
+                { $eq: ['$alarmType', 'MINOR'] },
+                1,
+                0
+              ]
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          region: { $ifNull: ['$_id', 'Unknown'] },
+          totalTickets: 1,
+          inProgressTickets: 1,
+          resolvedTickets: 1,
+          criticalAlarms: 1,
+          majorAlarms: 1,
+          minorAlarms: 1
+        }
+      },
+      { $sort: { totalTickets: -1 } }
+    ]);
+
     res.json({
       reports,
       carryOver,
@@ -397,7 +471,8 @@ router.get('/historical', authenticate, async (req, res) => {
         mttr,
         slaCompliance: slaPercentage,
         withinSLA: withinSLA,
-        totalResolved: totalResolvedForSLA
+        totalResolved: totalResolvedForSLA,
+        ticketsPerRegion: regionStats
       },
       pagination: {
         current: parseInt(page),

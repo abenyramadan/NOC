@@ -19,14 +19,14 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
   onSearchChange,
 }) => {
   return (
-    <div className="bg-[#1e2230] rounded-lg p-4 border border-gray-800 mb-6">
+    <div className="bg-card rounded-lg p-4 border border-border mb-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label className="block text-xs text-gray-400 mb-2">Severity</label>
+          <label className="block text-xs text-muted-foreground mb-2">Severity</label>
           <select
             value={selectedSeverity}
             onChange={(e) => onSeverityChange(e.target.value as any)}
-            className="w-full bg-[#151820] border border-gray-700 rounded px-3 py-2 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
+            className="w-full bg-background border border-input rounded px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
           >
             <option value="all">All Severities</option>
             <option value="critical">Critical</option>
@@ -38,11 +38,11 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
         </div>
         
         <div>
-          <label className="block text-xs text-gray-400 mb-2">Status</label>
+          <label className="block text-xs text-muted-foreground mb-2">Status</label>
           <select
             value={selectedStatus}
             onChange={(e) => onStatusChange(e.target.value)}
-            className="w-full bg-[#151820] border border-gray-700 rounded px-3 py-2 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
+            className="w-full bg-background border border-input rounded px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
           >
             <option value="all">All Statuses</option>
             <option value="active">Active</option>
@@ -52,13 +52,13 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-2">Search</label>
+          <label className="block text-xs text-muted-foreground mb-2">Search</label>
           <input
             type="text"
             placeholder="Search alarms..."
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full bg-[#151820] border border-gray-700 rounded px-3 py-2 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
+            className="w-full bg-background border border-input rounded px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
           />
         </div>
       </div>

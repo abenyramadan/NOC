@@ -172,7 +172,7 @@ export const SitesManagement: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );
   }
@@ -181,40 +181,40 @@ export const SitesManagement: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">Sites Management</h2>
-          <p className="text-gray-400 mt-1">Manage {sites.length} network sites across multiple states</p>
+          <h2 className="text-2xl font-bold text-foreground">Sites Management</h2>
+          <p className="text-muted-foreground mt-1">Manage {sites.length} network sites across multiple states</p>
         </div>
         <button
           onClick={() => {
             resetForm();
             setShowAddModal(true);
           }}
-          className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded transition-colors"
+          className="px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded transition-colors"
         >
           + Add Site
         </button>
       </div>
 
       {/* Filters */}
-      <div className="bg-[#1e2230] rounded-lg border border-gray-800 p-6">
+      <div className="bg-card rounded-lg border border-border p-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-2">Search</label>
+            <label className="block text-sm font-medium text-muted-foreground mb-2">Search</label>
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search sites..."
-              className="w-full px-3 py-2 bg-[#151820] border border-gray-700 rounded text-white text-sm"
+              className="w-full px-3 py-2 bg-background border border-input rounded text-foreground text-sm"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-2">State</label>
+            <label className="block text-sm font-medium text-muted-foreground mb-2">State</label>
             <select
               value={selectedState}
               onChange={(e) => setSelectedState(e.target.value)}
-              className="w-full px-3 py-2 bg-[#151820] border border-gray-700 rounded text-white text-sm"
+              className="w-full px-3 py-2 bg-background border border-input rounded text-foreground text-sm"
             >
               <option value="all">All States</option>
               {uniqueStates.map(state => (
@@ -224,11 +224,11 @@ export const SitesManagement: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-2">Status</label>
+            <label className="block text-sm font-medium text-muted-foreground mb-2">Status</label>
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
-              className="w-full px-3 py-2 bg-[#151820] border border-gray-700 rounded text-white text-sm"
+              className="w-full px-3 py-2 bg-background border border-input rounded text-foreground text-sm"
             >
               <option value="all">All Status</option>
               <option value="On Air">On Air</option>
@@ -239,11 +239,11 @@ export const SitesManagement: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-2">Transmission</label>
+            <label className="block text-sm font-medium text-muted-foreground mb-2">Transmission</label>
             <select
               value={selectedTransmission}
               onChange={(e) => setSelectedTransmission(e.target.value)}
-              className="w-full px-3 py-2 bg-[#151820] border border-gray-700 rounded text-white text-sm"
+              className="w-full px-3 py-2 bg-background border border-input rounded text-foreground text-sm"
             >
               <option value="all">All Types</option>
               <option value="Microwave">Microwave</option>
@@ -261,33 +261,33 @@ export const SitesManagement: React.FC = () => {
       )}
 
       {/* Results Summary */}
-      <div className="text-sm text-gray-400">
+      <div className="text-sm text-muted-foreground">
         Showing {filteredSites.length} of {sites.length} sites
       </div>
 
-      <div className="bg-[#1e2230] rounded-lg border border-gray-800 overflow-hidden">
+      <div className="bg-card rounded-lg border border-border overflow-hidden">
         <table className="w-full">
-          <thead className="bg-[#151820] border-b border-gray-800">
+          <thead className="bg-background border-b border-border">
             <tr>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Site ID</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Site Name</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">State</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">City</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Type</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Status</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Uptime</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Supervisor</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Actions</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Site ID</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Site Name</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">State</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">City</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Type</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Status</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Uptime</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Supervisor</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase">Actions</th>
             </tr>
           </thead>
           <tbody>
             {filteredSites.map(site => (
-              <tr key={site.id} className="border-b border-gray-800 hover:bg-gray-800/50">
-                <td className="px-6 py-4 text-sm text-white font-mono">{site.siteId}</td>
-                <td className="px-6 py-4 text-sm text-white">{site.siteName}</td>
-                <td className="px-6 py-4 text-sm text-gray-400">{site.state}</td>
-                <td className="px-6 py-4 text-sm text-gray-400">{site.city}</td>
-                <td className="px-6 py-4 text-sm text-gray-400">
+              <tr key={site.id} className="border-b border-border hover:bg-accent">
+                <td className="px-6 py-4 text-sm text-foreground font-mono">{site.siteId}</td>
+                <td className="px-6 py-4 text-sm text-foreground">{site.siteName}</td>
+                <td className="px-6 py-4 text-sm text-muted-foreground">{site.state}</td>
+                <td className="px-6 py-4 text-sm text-muted-foreground">{site.city}</td>
+                <td className="px-6 py-4 text-sm text-muted-foreground">
                   <span className="flex items-center gap-2">
                     <span>{transmissionIcons[site.transmission]}</span>
                     {site.transmission}
@@ -298,14 +298,14 @@ export const SitesManagement: React.FC = () => {
                     {site.status}
                   </span>
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-400">{site.uptime}%</td>
-                <td className="px-6 py-4 text-sm text-cyan-400">
-                  {site.supervisor || <span className="text-gray-500">No supervisor</span>}
+                <td className="px-6 py-4 text-sm text-muted-foreground">{site.uptime}%</td>
+                <td className="px-6 py-4 text-sm text-primary">
+                  {site.supervisor || <span className="text-muted-foreground">No supervisor</span>}
                 </td>
                 <td className="px-6 py-4">
                   <button
                     onClick={() => handleEdit(site)}
-                    className="text-cyan-400 hover:text-cyan-300 text-sm mr-3"
+                    className="text-primary hover:text-primary/80 text-sm mr-3"
                   >
                     Edit
                   </button>
@@ -325,66 +325,66 @@ export const SitesManagement: React.FC = () => {
       {/* Add/Edit Site Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-[#1e2230] p-6 rounded-lg border border-gray-800 w-full max-w-md">
-            <h3 className="text-lg font-semibold text-white mb-4">
+          <div className="bg-card p-6 rounded-lg border border-border w-full max-w-md">
+            <h3 className="text-lg font-semibold text-foreground mb-4">
               {editingSite ? 'Edit Site' : 'Add New Site'}
             </h3>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Site ID</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Site ID</label>
                 <input
                   type="text"
                   value={formData.siteId}
                   onChange={(e) => handleInputChange('siteId', e.target.value)}
-                  className={`w-full px-3 py-2 bg-[#151820] border rounded text-white ${formErrors.siteId ? 'border-red-500' : 'border-gray-700'}`}
+                  className={`w-full px-3 py-2 bg-background border rounded text-foreground ${formErrors.siteId ? 'border-red-500' : 'border-input'}`}
                   placeholder="Enter site ID"
                 />
                 {formErrors.siteId && <p className="text-red-400 text-sm mt-1">{formErrors.siteId}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Site Name</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Site Name</label>
                 <input
                   type="text"
                   value={formData.siteName}
                   onChange={(e) => handleInputChange('siteName', e.target.value)}
-                  className={`w-full px-3 py-2 bg-[#151820] border rounded text-white ${formErrors.siteName ? 'border-red-500' : 'border-gray-700'}`}
+                  className={`w-full px-3 py-2 bg-background border rounded text-foreground ${formErrors.siteName ? 'border-red-500' : 'border-input'}`}
                   placeholder="Enter site name"
                 />
                 {formErrors.siteName && <p className="text-red-400 text-sm mt-1">{formErrors.siteName}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">State</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">State</label>
                 <input
                   type="text"
                   value={formData.state}
                   onChange={(e) => handleInputChange('state', e.target.value)}
-                  className={`w-full px-3 py-2 bg-[#151820] border rounded text-white ${formErrors.state ? 'border-red-500' : 'border-gray-700'}`}
+                  className={`w-full px-3 py-2 bg-background border rounded text-foreground ${formErrors.state ? 'border-red-500' : 'border-input'}`}
                   placeholder="Enter state"
                 />
                 {formErrors.state && <p className="text-red-400 text-sm mt-1">{formErrors.state}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">City</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">City</label>
                 <input
                   type="text"
                   value={formData.city}
                   onChange={(e) => handleInputChange('city', e.target.value)}
-                  className={`w-full px-3 py-2 bg-[#151820] border rounded text-white ${formErrors.city ? 'border-red-500' : 'border-gray-700'}`}
+                  className={`w-full px-3 py-2 bg-background border rounded text-foreground ${formErrors.city ? 'border-red-500' : 'border-input'}`}
                   placeholder="Enter city"
                 />
                 {formErrors.city && <p className="text-red-400 text-sm mt-1">{formErrors.city}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Transmission Type</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Transmission Type</label>
                 <select
                   value={formData.transmission}
                   onChange={(e) => handleInputChange('transmission', e.target.value as any)}
-                  className="w-full px-3 py-2 bg-[#151820] border border-gray-700 rounded text-white"
+                  className="w-full px-3 py-2 bg-background border border-input rounded text-foreground"
                 >
                   <option value="Microwave">Microwave</option>
                   <option value="VSAT">VSAT</option>
@@ -393,11 +393,11 @@ export const SitesManagement: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Status</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Status</label>
                 <select
                   value={formData.status}
                   onChange={(e) => handleInputChange('status', e.target.value as any)}
-                  className="w-full px-3 py-2 bg-[#151820] border border-gray-700 rounded text-white"
+                  className="w-full px-3 py-2 bg-background border border-input rounded text-foreground"
                 >
                   <option value="On Air">On Air</option>
                   <option value="Off Air">Off Air</option>
@@ -407,12 +407,12 @@ export const SitesManagement: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Supervisor (Optional)</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Supervisor (Optional)</label>
                 <input
                   type="text"
                   value={formData.supervisor}
                   onChange={(e) => handleInputChange('supervisor', e.target.value)}
-                  className="w-full px-3 py-2 bg-[#151820] border border-gray-700 rounded text-white"
+                  className="w-full px-3 py-2 bg-background border border-input rounded text-foreground"
                   placeholder="Enter supervisor name"
                 />
               </div>
@@ -424,14 +424,14 @@ export const SitesManagement: React.FC = () => {
                     setShowAddModal(false);
                     resetForm();
                   }}
-                  className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded transition-colors"
+                  className="flex-1 px-4 py-2 bg-accent hover:bg-accent/90 text-accent-foreground rounded transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="flex-1 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded transition-colors"
+                  className="flex-1 px-4 py-2 bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-primary-foreground rounded transition-colors"
                 >
                   {submitting ? 'Saving...' : (editingSite ? 'Update' : 'Create')}
                 </button>

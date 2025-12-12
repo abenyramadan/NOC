@@ -66,14 +66,14 @@ export const getAuditLogs = async (filters?: AuditLogFilters): Promise<AuditLogR
 
   return apiRequest<AuditLogResponse>({
     method: 'get',
-    url: `/audit${params.toString() ? `?${params.toString()}` : ''}`
+    url: `/api/audit${params.toString() ? `?${params.toString()}` : ''}`
   });
 };
 
 export const getAuditStats = async (): Promise<AuditLogStats> => {
   return apiRequest<AuditLogStats>({
     method: 'get',
-    url: '/audit/stats/summary'
+    url: '/api/audit/stats/summary'
   });
 };
 
@@ -86,7 +86,7 @@ export const createAuditLog = async (logData: {
 }): Promise<{ message: string; auditLog: AuditLog }> => {
   return apiRequest({
     method: 'post',
-    url: '/audit',
+    url: '/api/audit',
     data: logData
   });
 };

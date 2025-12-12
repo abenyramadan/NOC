@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { startOfWeek, endOfWeek, format } from 'date-fns';
-import { reportsService } from '../services/reportsService';
+import { reportsService, HistoricalStats } from '../services/reportsService';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import { CheckCircle } from 'lucide-react';
 
 interface HistoricalReportFilters {
   regions: string[];
@@ -21,6 +22,8 @@ interface HistoricalReport {
   occurrenceTime: Date;
   resolutionTime?: Date;
   expectedResolutionHours?: number;
+  mandatoryRestorationTime?: Date;
+  expectedRestorationTime?: Date;
   status: string;
   rootCause?: string;
   supervisor?: string;
@@ -28,16 +31,79 @@ interface HistoricalReport {
   updatedBy?: { name: string; username: string };
 }
 
-interface HistoricalStats {
-  totalReports: number;
-  resolvedCount: number;
-  openCount: number;
-  inProgressCount: number;
-  mttr: number;
-  slaCompliance: number;
-  withinSLA: number;
-  totalResolved: number;
+interface HistoricalReportsResponse {
+  reports: HistoricalReport[];
+  carryOver: HistoricalReport[];
+  stats: HistoricalStats;
+  pagination: {
+    current: number;
+    total: number;
+    count: number;
+    totalReports: number;
+  };
 }
+
+const calculateSlaStatus = (outage: HistoricalReport): 'within' | 'out' | 'unknown' => {
+  // 1. Use stored SLA if already resolved and saved
+  if ((outage as any).slaStatus) {
+    return (outage as any).slaStatus;
+  }
+
+  // 2. Must have both timestamps
+  if (!outage.resolutionTime || !outage.occurrenceTime) {
+    return 'unknown';
+  }
+
+  const resolutionTime = new Date(outage.resolutionTime).getTime();
+  const occurrenceTime = new Date(outage.occurrenceTime).getTime();
+
+  if (isNaN(resolutionTime) || isNaN(occurrenceTime)) {
+    return 'unknown';
+  }
+
+  const actualResolutionMs = resolutionTime - occurrenceTime;
+
+  // ---------------------------------------------------
+  // 3. SLA PRIORITY #1 – Mandatory Restoration Time (MRT)
+  // ---------------------------------------------------
+  if (outage.mandatoryRestorationTime) {
+    let mrt;
+    if (typeof outage.mandatoryRestorationTime === 'string') {
+      mrt = new Date(outage.mandatoryRestorationTime).getTime();
+    } else {
+      mrt = outage.mandatoryRestorationTime.getTime();
+    }
+
+    if (!isNaN(mrt)) {
+      return resolutionTime <= mrt ? 'within' : 'out';
+    }
+  }
+
+  // ---------------------------------------------------
+  // 4. SLA PRIORITY #2 – Expected Restoration Time (ERT) in hours
+  // ---------------------------------------------------
+  if (outage.expectedResolutionHours && outage.expectedResolutionHours > 0) {
+    const expectedMs = outage.expectedResolutionHours * 60 * 60 * 1000;
+    return actualResolutionMs <= expectedMs ? 'within' : 'out';
+  }
+
+  // ---------------------------------------------------
+  // 5. SLA PRIORITY #3 – Default SLA by alarm type
+  // ---------------------------------------------------
+  const defaultSLAs = {
+    CRITICAL: 1,
+    MAJOR: 2,
+    MINOR: 4,
+    WARNING: 8,
+    INFO: 24
+  };
+
+  const type = (outage.alarmType || 'INFO').toUpperCase() as keyof typeof defaultSLAs;
+  const defaultHours = defaultSLAs[type] || 24;
+  const defaultMs = defaultHours * 60 * 60 * 1000;
+
+  return actualResolutionMs <= defaultMs ? 'within' : 'out';
+};
 
 export const HistoricalReports: React.FC = () => {
   const [dateRange, setDateRange] = useState({
@@ -64,6 +130,16 @@ export const HistoricalReports: React.FC = () => {
 
   const [showFilters, setShowFilters] = useState(false);
   const [exporting, setExporting] = useState(false);
+
+  // Separate reports into ongoing and resolved
+  const ongoingReports = useMemo(() => 
+    reports.filter(report => report.status === 'Open' || report.status === 'In Progress'),
+    [reports]
+  );
+  const resolvedReports = useMemo(() => 
+    reports.filter(report => report.status === 'Resolved' || report.status === 'Closed'),
+    [reports]
+  );
 
   // Available filter options
   const regions = [
@@ -101,12 +177,16 @@ export const HistoricalReports: React.FC = () => {
       setReports(response.reports.map(report => ({
         ...report,
         occurrenceTime: new Date(report.occurrenceTime),
-        resolutionTime: report.resolutionTime ? new Date(report.resolutionTime) : undefined
+        resolutionTime: report.resolutionTime ? new Date(report.resolutionTime) : undefined,
+        mandatoryRestorationTime: report.mandatoryRestorationTime ? new Date(report.mandatoryRestorationTime) : undefined,
+        expectedRestorationTime: report.expectedRestorationTime ? new Date(report.expectedRestorationTime) : undefined
       })));
       setCarryOver(response.carryOver.map(report => ({
         ...report,
         occurrenceTime: new Date(report.occurrenceTime),
-        resolutionTime: report.resolutionTime ? new Date(report.resolutionTime) : undefined
+        resolutionTime: report.resolutionTime ? new Date(report.resolutionTime) : undefined,
+        mandatoryRestorationTime: report.mandatoryRestorationTime ? new Date(report.mandatoryRestorationTime) : undefined,
+        expectedRestorationTime: report.expectedRestorationTime ? new Date(report.expectedRestorationTime) : undefined
       })));
       setStats(response.stats);
       setPagination(response.pagination);
@@ -168,7 +248,7 @@ export const HistoricalReports: React.FC = () => {
 
     // Date range
     doc.setFontSize(12);
-    doc.text(`Report Period: ${format(dateRange.start, 'MMM dd, yyyy')} - ${format(dateRange.end, 'MMM dd, yyyy')}`, 14, 35);
+    doc.text(`Report Period: ${format(dateRange.start, 'dd/MMM/yyyy')} - ${format(dateRange.end, 'dd/MMM/yyyy')}`, 14, 35);
 
     // Summary stats
     if (stats) {
@@ -176,13 +256,14 @@ export const HistoricalReports: React.FC = () => {
     }
 
     // Table data
-    const tableColumns = ['Site', 'Region', 'Type', 'Occurrence', 'Expected (hrs)', 'Root Cause', 'Resolution', 'Status', 'Updated By'];
-    const tableRows = reports.map(report => [
+    const tableColumns = ['Site', 'Region', 'Type', 'Occurrence', 'Exp. Rest. Time', 'Mand. Rest. Time', 'Root Cause', 'Resolution', 'Status', 'Updated By'];
+    const tableRows = [...ongoingReports, ...resolvedReports].map(report => [
       `${report.siteNo} - ${report.siteCode}`,
       report.region,
       report.alarmType,
       formatDateTime(report.occurrenceTime),
-      report.expectedResolutionHours ? `${report.expectedResolutionHours} hours` : 'Not set',
+      report.expectedRestorationTime ? formatDateTime(report.expectedRestorationTime) : 'Not set',
+      report.mandatoryRestorationTime ? formatDateTime(report.mandatoryRestorationTime) : 'Not set',
       report.rootCause || 'Not specified',
       report.resolutionTime ? formatDateTime(report.resolutionTime) : 'Not resolved',
       report.status,
@@ -241,7 +322,7 @@ export const HistoricalReports: React.FC = () => {
     // Summary sheet
     const summaryData = [
       ['Historical Outage Reports Summary'],
-      ['Report Period', `${format(dateRange.start, 'MMM dd, yyyy')} - ${format(dateRange.end, 'MMM dd, yyyy')}`],
+      ['Report Period', `${format(dateRange.start, 'dd/MMM/yyyy')} - ${format(dateRange.end, 'dd/MMM/yyyy')}`],
       ['Generated On', new Date().toLocaleString()],
       [''],
       ['Summary Statistics'],
@@ -267,7 +348,7 @@ export const HistoricalReports: React.FC = () => {
 
     // Reports sheet
     const reportsData = [
-      ['Site', 'Region', 'Type', 'Occurrence', 'Expected Hours', 'Root Cause', 'Resolution', 'Status', 'Updated By']
+      ['Site', 'Region', 'Type', 'Occurrence', 'Exp. Rest. Time', 'Mand. Rest. Time', 'Root Cause', 'Resolution', 'Status', 'Updated By']
     ];
 
     reports.forEach(report => {
@@ -276,7 +357,8 @@ export const HistoricalReports: React.FC = () => {
         report.region,
         report.alarmType,
         formatDateTime(report.occurrenceTime),
-        report.expectedResolutionHours ? report.expectedResolutionHours.toString() : 'Not set',
+        report.expectedRestorationTime ? formatDateTime(report.expectedRestorationTime) : 'Not set',
+        report.mandatoryRestorationTime ? formatDateTime(report.mandatoryRestorationTime) : 'Not set',
         report.rootCause || 'Not specified',
         report.resolutionTime ? formatDateTime(report.resolutionTime) : 'Not resolved',
         report.status,
@@ -316,7 +398,8 @@ export const HistoricalReports: React.FC = () => {
       { wch: 12 }, // Region
       { wch: 10 }, // Type
       { wch: 18 }, // Occurrence
-      { wch: 15 }, // Expected Hours
+      { wch: 18 }, // Exp. Rest. Time
+      { wch: 18 }, // Mand. Rest. Time
       { wch: 15 }, // Root Cause
       { wch: 18 }, // Resolution
       { wch: 10 }, // Status
@@ -329,14 +412,7 @@ export const HistoricalReports: React.FC = () => {
 
   const formatDateTime = (date: Date | string) => {
     const d = typeof date === 'string' ? new Date(date) : date;
-    return d.toLocaleString('en-US', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+    return format(d, 'dd/MMM/yyyy HH:mm');
   };
 
   const getStatusBadgeColor = (status: string) => {
@@ -370,39 +446,39 @@ export const HistoricalReports: React.FC = () => {
     <div className="space-y-6">
       {/* Header */}
       <div className="mb-8">
-        <h2 className="text-3xl font-bold text-white mb-2">📊 Historical Report Viewer</h2>
-        <p className="text-gray-400">View and analyze past outage reports with advanced filtering and export capabilities</p>
+        <h2 className="text-3xl font-bold text-foreground mb-2">📊 Historical Report Viewer</h2>
+        <p className="text-muted-foreground">View and analyze past outage reports with advanced filtering and export capabilities</p>
       </div>
 
       {/* Date Range Picker */}
-      <div className="bg-[#1e2230] rounded-lg p-4 border border-gray-800 mb-4">
+      <div className="bg-card rounded-lg p-4 border border-border mb-4">
         <div className="flex items-center gap-4 flex-wrap">
           <div>
-            <label className="block text-xs text-gray-400 mb-2">📅 Start Date</label>
+            <label className="block text-xs text-muted-foreground mb-2">📅 Start Date</label>
             <input
               type="date"
               value={format(dateRange.start, 'yyyy-MM-dd')}
               onChange={(e) => handleDateChange('start', e.target.value)}
-              className="bg-[#151820] border border-gray-700 rounded px-3 py-2 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
+              className="bg-background border border-input rounded px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-2">📅 End Date</label>
+            <label className="block text-xs text-muted-foreground mb-2">📅 End Date</label>
             <input
               type="date"
               value={format(dateRange.end, 'yyyy-MM-dd')}
               onChange={(e) => handleDateChange('end', e.target.value)}
-              className="bg-[#151820] border border-gray-700 rounded px-3 py-2 text-sm text-gray-300 focus:border-cyan-500 focus:outline-none"
+              className="bg-background border border-input rounded px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
             />
           </div>
           <div className="flex-1 flex items-end">
-            <div className="text-sm text-cyan-400 font-medium">
-              📊 Viewing reports from {format(dateRange.start, 'MMM dd, yyyy')} to {format(dateRange.end, 'MMM dd, yyyy')}
+            <div className="text-sm text-primary font-medium">
+              📊 Viewing reports from {format(dateRange.start, 'dd/MMM/yyyy')} to {format(dateRange.end, 'dd/MMM/yyyy')}
             </div>
           </div>
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded transition-colors"
+            className="px-4 py-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded transition-colors"
           >
             🔍 Filters {Object.values(filters).some(arr => arr.length > 0) && '●'}
           </button>
@@ -411,11 +487,11 @@ export const HistoricalReports: React.FC = () => {
 
       {/* Filters Panel */}
       {showFilters && (
-        <div className="bg-[#1e2230] rounded-lg p-4 border border-gray-800 mb-4">
+        <div className="bg-card rounded-lg p-4 border border-border mb-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* Regions Filter */}
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">Regions</label>
+              <label className="block text-sm font-medium text-foreground mb-2">Regions</label>
               <div className="max-h-40 overflow-y-auto space-y-2">
                 {regions.map((region, index) => (
                   <label key={region || index} className="flex items-center text-sm">
@@ -425,7 +501,7 @@ export const HistoricalReports: React.FC = () => {
                       onChange={(e) => handleFilterChange('regions', region, e.target.checked)}
                       className="mr-2"
                     />
-                    {region}
+                    <span className="text-foreground">{region}</span>
                   </label>
                 ))}
               </div>
@@ -433,7 +509,7 @@ export const HistoricalReports: React.FC = () => {
 
             {/* Root Causes Filter */}
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">Root Causes</label>
+              <label className="block text-sm font-medium text-foreground mb-2">Root Causes</label>
               <div className="space-y-2">
                 {rootCauses.map((cause, index) => (
                   <label key={cause || index} className="flex items-center text-sm">
@@ -443,7 +519,7 @@ export const HistoricalReports: React.FC = () => {
                       onChange={(e) => handleFilterChange('rootCauses', cause, e.target.checked)}
                       className="mr-2"
                     />
-                    {cause}
+                    <span className="text-foreground">{cause}</span>
                   </label>
                 ))}
               </div>
@@ -451,7 +527,7 @@ export const HistoricalReports: React.FC = () => {
 
             {/* Alarm Types Filter */}
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">Alarm Types</label>
+              <label className="block text-sm font-medium text-foreground mb-2">Alarm Types</label>
               <div className="space-y-2">
                 {alarmTypes.map((type, index) => (
                   <label key={type || index} className="flex items-center text-sm">
@@ -461,7 +537,7 @@ export const HistoricalReports: React.FC = () => {
                       onChange={(e) => handleFilterChange('alarmTypes', type, e.target.checked)}
                       className="mr-2"
                     />
-                    {type}
+                    <span className="text-foreground">{type}</span>
                   </label>
                 ))}
               </div>
@@ -469,7 +545,7 @@ export const HistoricalReports: React.FC = () => {
 
             {/* Status Filter */}
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">Status</label>
+              <label className="block text-sm font-medium text-foreground mb-2">Status</label>
               <div className="space-y-2">
                 {statuses.map((status, index) => (
                   <label key={status || index} className="flex items-center text-sm">
@@ -479,7 +555,7 @@ export const HistoricalReports: React.FC = () => {
                       onChange={(e) => handleFilterChange('statuses', status, e.target.checked)}
                       className="mr-2"
                     />
-                    {status}
+                    <span className="text-foreground">{status}</span>
                   </label>
                 ))}
               </div>
@@ -488,13 +564,13 @@ export const HistoricalReports: React.FC = () => {
           <div className="flex justify-between mt-4">
             <button
               onClick={clearFilters}
-              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded transition-colors"
+              className="px-4 py-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded transition-colors"
             >
               Clear All
             </button>
             <button
               onClick={() => setShowFilters(false)}
-              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded transition-colors"
+              className="px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded transition-colors"
             >
               Apply Filters
             </button>
@@ -504,23 +580,35 @@ export const HistoricalReports: React.FC = () => {
 
       {/* Summary Stats */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div className="bg-[#1e2230] rounded-lg p-4 border border-gray-800">
-            <div className="text-2xl font-bold text-cyan-400">{stats.totalReports}</div>
-            <div className="text-sm text-gray-400">Total Reports</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+          <div className="bg-card rounded-lg p-4 border border-border">
+            <div className="text-2xl font-bold text-primary">{stats.totalReports}</div>
+            <div className="text-sm text-muted-foreground">Total Reports</div>
           </div>
-          <div className="bg-[#1e2230] rounded-lg p-4 border border-gray-800">
-            <div className="text-2xl font-bold text-green-400">{stats.mttr}min</div>
-            <div className="text-sm text-gray-400">Average MTTR</div>
+          <div className="bg-card rounded-lg p-4 border border-border">
+            <div className="text-2xl font-bold text-green-600 dark:text-green-400">{stats.mttr}min</div>
+            <div className="text-sm text-muted-foreground">Average MTTR</div>
           </div>
-          <div className="bg-[#1e2230] rounded-lg p-4 border border-gray-800">
-            <div className="text-2xl font-bold text-blue-400">{stats.slaCompliance}%</div>
-            <div className="text-sm text-gray-400">SLA Compliance</div>
+          <div className="bg-card rounded-lg p-4 border border-border">
+            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.slaCompliance}%</div>
+            <div className="text-sm text-muted-foreground">SLA Compliance</div>
           </div>
-          <div className="bg-[#1e2230] rounded-lg p-4 border border-gray-800">
-            <div className="text-2xl font-bold text-yellow-400">{carryOver.length}</div>
-            <div className="text-sm text-gray-400">Carry-over Incidents</div>
+          <div className="bg-card rounded-lg p-4 border border-border">
+            <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{carryOver.length}</div>
+            <div className="text-sm text-muted-foreground">Carry-over Incidents</div>
           </div>
+          {stats.ticketsPerRegion && stats.ticketsPerRegion.length > 0 && (
+            <>
+              <div className="bg-card rounded-lg p-4 border border-border">
+                <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{stats.ticketsPerRegion[0].region}</div>
+                <div className="text-sm text-muted-foreground">Top Region ({stats.ticketsPerRegion[0].totalTickets} tickets)</div>
+              </div>
+              <div className="bg-card rounded-lg p-4 border border-border">
+                <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">{stats.ticketsPerRegion[stats.ticketsPerRegion.length - 1].region}</div>
+                <div className="text-sm text-muted-foreground">Least Region ({stats.ticketsPerRegion[stats.ticketsPerRegion.length - 1].totalTickets} tickets)</div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -529,14 +617,14 @@ export const HistoricalReports: React.FC = () => {
         <button
           onClick={() => handleExport('excel')}
           disabled={exporting}
-          className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded transition-colors"
+          className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white dark:bg-green-700 dark:hover:bg-green-800 rounded transition-colors"
         >
           📊 Export Excel
         </button>
         <button
           onClick={() => handleExport('pdf')}
           disabled={exporting}
-          className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded transition-colors"
+          className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white dark:bg-red-700 dark:hover:bg-red-800 rounded transition-colors"
         >
           📄 Export PDF
         </button>
@@ -544,29 +632,29 @@ export const HistoricalReports: React.FC = () => {
 
       {/* Carry-over Section */}
       {carryOver.length > 0 && (
-        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 mb-6">
-          <h3 className="text-lg font-semibold text-yellow-400 mb-2">🔁 Carry-over Incidents ({carryOver.length})</h3>
-          <p className="text-sm text-gray-300 mb-4">
+        <div className="bg-card rounded-lg border border-border p-4 mb-6">
+          <h3 className="text-lg font-semibold text-foreground mb-2">🔁 Carry-over Incidents ({carryOver.length})</h3>
+          <p className="text-sm text-muted-foreground mb-4">
             These incidents were ongoing before the selected date range and may span multiple days.
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-600">
-                  <th className="px-4 py-2 text-left text-gray-400">Site</th>
-                  <th className="px-4 py-2 text-left text-gray-400">Type</th>
-                  <th className="px-4 py-2 text-left text-gray-400">Started</th>
-                  <th className="px-4 py-2 text-left text-gray-400">Duration</th>
-                  <th className="px-4 py-2 text-left text-gray-400">Status</th>
+                <tr className="border-b border-border">
+                  <th className="px-4 py-2 text-left text-muted-foreground">Site</th>
+                  <th className="px-4 py-2 text-left text-muted-foreground">Type</th>
+                  <th className="px-4 py-2 text-left text-muted-foreground">Started</th>
+                  <th className="px-4 py-2 text-left text-muted-foreground">Duration</th>
+                  <th className="px-4 py-2 text-left text-muted-foreground">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {carryOver.slice(0, 5).map((report, index) => (
-                  <tr key={report.id || `carry-over-${index}`} className="border-b border-gray-700">
-                    <td className="px-4 py-2 text-gray-300">{report.siteNo} - {report.siteCode}</td>
-                    <td className="px-4 py-2 text-gray-300">{report.alarmType}</td>
-                    <td className="px-4 py-2 text-gray-300">{formatDateTime(report.occurrenceTime)}</td>
-                    <td className="px-4 py-2 text-gray-300">{getDaysDuration(report.occurrenceTime)} days</td>
+                  <tr key={report.id || `carry-over-${index}`} className="border-b border-border">
+                    <td className="px-4 py-2 text-foreground">{report.siteNo} - {report.siteCode}</td>
+                    <td className="px-4 py-2 text-foreground">{report.alarmType}</td>
+                    <td className="px-4 py-2 text-foreground">{formatDateTime(report.occurrenceTime)}</td>
+                    <td className="px-4 py-2 text-foreground">{getDaysDuration(report.occurrenceTime)} days</td>
                     <td className="px-4 py-2">
                       <span className={`px-2 py-1 rounded text-xs ${getStatusBadgeColor(report.status)}`}>
                         {report.status}
@@ -580,59 +668,136 @@ export const HistoricalReports: React.FC = () => {
         </div>
       )}
 
-      {/* Reports Table */}
-      <div className="bg-[#1e2230] rounded-lg border border-gray-800 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-800 flex justify-between items-center">
-          <h3 className="text-xl font-bold text-white">Historical Reports</h3>
-          <div className="text-sm text-gray-400">
+      {/* Resolved Outages Section */}
+      {resolvedReports.length > 0 && (
+        <div className="bg-card rounded-lg border border-border overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-border bg-success/10">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-green-500" />
+              <h3 className="text-xl font-bold text-foreground">
+                ✅ Resolved Outages ({resolvedReports.length})
+              </h3>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-muted border-b border-border">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Site</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Region</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Occurrence</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Resolution</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Duration</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">SLA Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Root Cause</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Updated By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resolvedReports.map((report, index) => {
+                  const slaStatus = calculateSlaStatus(report);
+                  const durationHours = report.resolutionTime && report.occurrenceTime
+                    ? Math.floor((new Date(report.resolutionTime).getTime() - new Date(report.occurrenceTime).getTime()) / (1000 * 60 * 60))
+                    : 0;
+                  const durationMinutes = report.resolutionTime && report.occurrenceTime
+                    ? Math.floor(((new Date(report.resolutionTime).getTime() - new Date(report.occurrenceTime).getTime()) % (1000 * 60 * 60)) / (1000 * 60))
+                    : 0;
+                  const durationStr = durationHours > 0
+                    ? `${durationHours}h ${durationMinutes}m`
+                    : `${durationMinutes}m`;
+
+                  return (
+                    <tr key={report.id || `resolved-${index}`} className="border-b border-border hover:bg-accent">
+                      <td className="px-4 py-3 text-sm text-foreground">
+                        <div>{report.siteNo}</div>
+                        <div className="text-xs text-muted-foreground">{report.siteCode}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-foreground">{report.region}</td>
+                      <td className={`px-4 py-3 text-sm ${getAlarmTypeColor(report.alarmType)}`}>
+                        {report.alarmType}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-foreground">
+                        {formatDateTime(report.occurrenceTime)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-foreground">
+                        {report.resolutionTime ? formatDateTime(report.resolutionTime) : 'N/A'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-foreground">
+                        {durationStr}
+                      </td>
+                      <td className={`px-4 py-3 text-sm ${slaStatus === 'within' ? 'text-green-600 dark:text-green-400' : slaStatus === 'out' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
+                        {slaStatus === 'within' ? '✅ Within SLA' : slaStatus === 'out' ? '❌ Out of SLA' : 'N/A'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-foreground">
+                        <span className="italic text-yellow-600 dark:text-yellow-400">{report.rootCause || 'Not specified'}</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-foreground">
+                        {report.updatedBy?.name || report.createdBy?.name || 'System'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Ongoing Reports Table */}
+      <div className="bg-card rounded-lg border border-border overflow-hidden">
+        <div className="px-6 py-4 border-b border-border flex justify-between items-center">
+          <h3 className="text-xl font-bold text-foreground">Ongoing Historical Reports ({ongoingReports.length})</h3>
+          <div className="text-sm text-muted-foreground">
             Page {pagination.current} of {pagination.total} ({pagination.totalReports} total reports)
           </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-[#151820] border-b border-gray-800">
+            <thead className="bg-muted border-b border-border">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Site</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Region</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Occurrence</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Expected (hrs)</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Root Cause</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Resolution</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Updated By</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Site</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Region</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Type</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Occurrence</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Exp. Rest. Time</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Mand. Rest. Time</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Root Cause</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Updated By</th>
               </tr>
             </thead>
             <tbody>
-              {reports.map((report, index) => (
-                <tr key={report.id || `report-${index}`} className="border-b border-gray-800 hover:bg-gray-800">
-                  <td className="px-4 py-3 text-sm text-gray-300">
+              {ongoingReports.map((report, index) => (
+                <tr key={report.id || `report-${index}`} className="border-b border-border hover:bg-accent">
+                  <td className="px-4 py-3 text-sm text-foreground">
                     <div>{report.siteNo}</div>
-                    <div className="text-xs text-gray-500">{report.siteCode}</div>
+                    <div className="text-xs text-muted-foreground">{report.siteCode}</div>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">{report.region}</td>
+                  <td className="px-4 py-3 text-sm text-foreground">{report.region}</td>
                   <td className={`px-4 py-3 text-sm ${getAlarmTypeColor(report.alarmType)}`}>
                     {report.alarmType}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
+                  <td className="px-4 py-3 text-sm text-foreground">
                     {formatDateTime(report.occurrenceTime)}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
-                    {report.expectedResolutionHours ? `${report.expectedResolutionHours} hours` : 'Not set'}
+                  <td className="px-4 py-3 text-sm text-foreground">
+                    {report.expectedRestorationTime ? formatDateTime(report.expectedRestorationTime) : 'Not set'}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
+                  <td className="px-4 py-3 text-sm text-foreground">
+                    {report.mandatoryRestorationTime ? formatDateTime(report.mandatoryRestorationTime) : 'Not set'}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-foreground">
                     {report.rootCause || 'Not specified'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
-                    {report.resolutionTime ? formatDateTime(report.resolutionTime) : 'Not resolved'}
                   </td>
                   <td className="px-4 py-3 text-sm">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadgeColor(report.status)}`}>
                       {report.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
+                  <td className="px-4 py-3 text-sm text-foreground">
                     {report.updatedBy?.name || report.createdBy?.name || 'System'}
                   </td>
                 </tr>
@@ -642,21 +807,21 @@ export const HistoricalReports: React.FC = () => {
         </div>
 
         {/* Pagination */}
-        <div className="px-6 py-4 border-t border-gray-800 flex justify-between items-center">
+        <div className="px-6 py-4 border-t border-border flex justify-between items-center">
           <button
             onClick={() => setPagination(prev => ({ ...prev, current: prev.current - 1 }))}
             disabled={pagination.current === 1}
-            className="px-4 py-2 bg-gray-600 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded transition-colors"
+            className="px-4 py-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
           >
             Previous
           </button>
-          <div className="text-sm text-gray-400">
+          <div className="text-sm text-muted-foreground">
             Page {pagination.current} of {pagination.total}
           </div>
           <button
             onClick={() => setPagination(prev => ({ ...prev, current: prev.current + 1 }))}
             disabled={pagination.current === pagination.total}
-            className="px-4 py-2 bg-gray-600 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded transition-colors"
+            className="px-4 py-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
           >
             Next
           </button>
@@ -665,21 +830,23 @@ export const HistoricalReports: React.FC = () => {
 
       {loading && (
         <div className="flex items-center justify-center h-64">
-          <div className="text-gray-400">Loading historical reports...</div>
+          <div className="text-muted-foreground">Loading historical reports...</div>
         </div>
       )}
 
       {error && (
-        <div className="bg-red-500/20 border border-red-500 text-red-400 px-4 py-3 rounded">
+        <div className="bg-destructive/20 border border-destructive text-destructive-foreground px-4 py-3 rounded">
           {error}
         </div>
       )}
 
       {reports.length === 0 && !loading && (
         <div className="text-center py-12">
-          <p className="text-gray-400">No reports found for the selected date range and filters.</p>
+          <p className="text-muted-foreground">No reports found for the selected date range and filters.</p>
         </div>
       )}
     </div>
   );
 };
+
+export default HistoricalReports;

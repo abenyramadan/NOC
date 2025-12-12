@@ -54,18 +54,29 @@ const DailyReports: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [activeTab, setActiveTab] = useState<TabType>('ongoing');
   
-  // Filter reports based on status with proper type assertion
-  const { ongoingOutages, resolvedOutages } = useMemo(() => {
+  // Filter reports based on status and carry-over logic
+  const { ongoingOutages, resolvedOutages, carryOverOutages } = useMemo(() => {
     const reports = dailyReports?.allReports || [];
+    const selectedDateStart = new Date(selectedDate);
+    selectedDateStart.setHours(0, 0, 0, 0);
+    const selectedDateEnd = new Date(selectedDateStart.getTime() + 24 * 60 * 60 * 1000);
+    const isInProgress = (s: string) => s === 'In Progress' || s === 'Open';
+    const isResolved = (s: string) => s === 'Resolved' || s === 'Closed';
+
     return {
-      ongoingOutages: reports.filter((report: OutageReport) => 
-        (report.status as string) === 'In Progress' || (report.status as string) === 'Open'
+      carryOverOutages: reports.filter((report: OutageReport) => 
+        new Date(report.occurrenceTime) < selectedDateStart && isInProgress(report.status as string)
       ),
-      resolvedOutages: reports.filter((report: OutageReport) => 
-        (report.status as string) === 'Resolved' || (report.status as string) === 'Closed'
-      )
+      ongoingOutages: reports.filter((report: OutageReport) => 
+        new Date(report.occurrenceTime) >= selectedDateStart && isInProgress(report.status as string)
+      ),
+      resolvedOutages: reports.filter((report: OutageReport) => {
+        if (!isResolved(report.status as string) || !report.resolutionTime) return false;
+        const rt = new Date(report.resolutionTime);
+        return rt >= selectedDateStart && rt < selectedDateEnd;
+      })
     };
-  }, [dailyReports]);
+  }, [dailyReports, selectedDate]);
   
   // Helper functions for formatting and styling
   const formatDateTime = (date: Date | string | null | undefined) => {
@@ -125,11 +136,156 @@ const DailyReports: React.FC = () => {
       try {
         setLoading(true);
         setError(null);
+
         const data = await outageReportService.getDailyReports(selectedDate);
-        console.log('Daily reports data:', data);
-        console.log('Tickets per region (raw):', JSON.stringify(data.ticketsPerRegion, null, 2));
-        console.log('All reports regions:', [...new Set(data.allReports.map(r => r.region))]);
-        setDailyReports(data);
+        const startOfDay = new Date(selectedDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+
+        const rangeFetch = await outageReportService.getOutageReports({
+          startDate: startOfDay.toISOString(),
+          endDate: endOfDay.toISOString(),
+          sortBy: 'occurrenceTime',
+          sortOrder: 'asc',
+          limit: 2000,
+        });
+
+        const allOutages: OutageReport[] = rangeFetch.reports.map((r: any) => ({
+          ...r,
+          occurrenceTime: new Date(r.occurrenceTime),
+          resolutionTime: r.resolutionTime ? new Date(r.resolutionTime) : undefined,
+          expectedRestorationTime: r.expectedRestorationTime ? new Date(r.expectedRestorationTime) : undefined,
+          mandatoryRestorationTime: r.mandatoryRestorationTime ? new Date(r.mandatoryRestorationTime) : undefined,
+        }));
+
+        console.log('🌐 Daily: Backend API response:', {
+          totalFetched: rangeFetch.reports.length,
+          dateRange: { startOfDay, endOfDay },
+          sample: rangeFetch.reports.slice(0, 3).map((r: any) => ({
+            id: r.id || r._id,
+            status: r.status,
+            occurrenceTime: r.occurrenceTime,
+            resolutionTime: r.resolutionTime
+          }))
+        });
+
+        const isInProgress = (s: string) => s === 'In Progress' || s === 'Open';
+        const isResolved = (s: string) => s === 'Resolved' || s === 'Closed';
+
+        const carryOver = allOutages.filter(r => (r.occurrenceTime as any) < startOfDay && isInProgress(r.status as string));
+        const ongoingToday = allOutages.filter(r => (r.occurrenceTime as any) >= startOfDay && isInProgress(r.status as string));
+        const resolvedToday = allOutages.filter(r => {
+          if (!isResolved(r.status as string) || !r.resolutionTime) return false;
+          const rt = r.resolutionTime as any as Date;
+          const included = rt >= startOfDay && rt < endOfDay;
+          console.log('🔍 Daily: Checking resolved outage:', {
+            id: r.id || (r as any)._id,
+            status: r.status,
+            occurrenceTime: r.occurrenceTime,
+            resolutionTime: r.resolutionTime,
+            resolutionTimeDate: rt,
+            startOfDay,
+            endOfDay,
+            included
+          });
+          return included;
+        });
+
+        console.log('📊 Daily Resolved Today Summary:', {
+          totalAllOutages: allOutages.length,
+          resolvedTodayCount: resolvedToday.length,
+          carryOverCount: carryOver.length,
+          ongoingTodayCount: ongoingToday.length
+        });
+
+        console.log('📋 DAILY: ALL RESOLVED TODAY TICKETS:', resolvedToday.map(r => ({
+          id: r.id || (r as any)._id,
+          siteCode: r.siteCode,
+          region: r.region,
+          status: r.status,
+          occurrenceTime: r.occurrenceTime,
+          resolutionTime: r.resolutionTime,
+          isCarryOver: (r.occurrenceTime as any) < startOfDay,
+          durationHours: r.resolutionTime && r.occurrenceTime 
+            ? ((new Date(r.resolutionTime as any).getTime() - new Date(r.occurrenceTime as any).getTime()) / (1000 * 60 * 60)).toFixed(2)
+            : 'N/A'
+        })));
+
+        const regionMap: Record<string, any> = {};
+        const combinedForRegion = [...carryOver, ...ongoingToday, ...resolvedToday];
+        const calcSlaStatus = (r: OutageReport): 'within' | 'out' | 'unknown' => {
+          if ((r as any).slaStatus) return ((r as any).slaStatus as any) || 'unknown';
+          if (!r.resolutionTime || !r.occurrenceTime) return 'unknown';
+          const resolutionTime = new Date(r.resolutionTime).getTime();
+          const occurrenceTime = new Date(r.occurrenceTime).getTime();
+          if (r.mandatoryRestorationTime) {
+            const mandatory = new Date(r.mandatoryRestorationTime).getTime();
+            return resolutionTime <= mandatory ? 'within' : 'out';
+          }
+          const thresholds: Record<string, number> = { CRITICAL: 60, MAJOR: 120, MINOR: 240, WARNING: 480, INFO: 1440 };
+          const minutes = Math.round((resolutionTime - occurrenceTime) / 60000);
+          const alarm = (r.alarmType as string) || 'INFO';
+          const th = thresholds[alarm] ?? 240;
+          return minutes <= th ? 'within' : 'out';
+        };
+
+        combinedForRegion.forEach((o: any) => {
+          const region = o.region || 'Unknown';
+          if (!regionMap[region]) {
+            regionMap[region] = {
+              region,
+              totalTickets: 0,
+              openTickets: 0,
+              inProgressTickets: 0,
+              resolvedTickets: 0,
+              withinSLATickets: 0,
+              outOfSLATickets: 0,
+              criticalAlarms: 0,
+              majorAlarms: 0,
+              minorAlarms: 0,
+            };
+          }
+          const r = regionMap[region];
+          r.totalTickets += 1;
+          if (o.status === 'Open') r.openTickets += 1;
+          if (o.status === 'In Progress') r.inProgressTickets += 1;
+          if (o.status === 'Resolved' || o.status === 'Closed') {
+            r.resolvedTickets += 1;
+            const sla = calcSlaStatus(o);
+            if (sla === 'within') r.withinSLATickets += 1;
+            else if (sla === 'out') r.outOfSLATickets += 1;
+          }
+          if (o.alarmType === 'CRITICAL') r.criticalAlarms += 1;
+          if (o.alarmType === 'MAJOR') r.majorAlarms += 1;
+          if (o.alarmType === 'MINOR') r.minorAlarms += 1;
+        });
+
+        const totalReports = allOutages.length;
+        const totalOpen = allOutages.filter(r => (r.status as string) === 'Open').length;
+        const totalInProgress = allOutages.filter(r => (r.status as string) === 'In Progress').length;
+        const totalResolved = resolvedToday.length;
+        let totalResolutionMinutes = 0;
+        resolvedToday.forEach(r => {
+          if (r.resolutionTime && r.occurrenceTime) {
+            totalResolutionMinutes += Math.round((new Date(r.resolutionTime).getTime() - new Date(r.occurrenceTime).getTime()) / 60000);
+          }
+        });
+        const mttr = resolvedToday.length > 0 ? Math.round(totalResolutionMinutes / resolvedToday.length) : 0;
+
+        setDailyReports({
+          ...data,
+          summary: {
+            totalReports,
+            totalOpen,
+            totalInProgress,
+            totalResolved,
+            mttr
+          },
+          ticketsPerRegion: Object.values(regionMap),
+          allReports: allOutages,
+          ongoingOutages: ongoingToday as any,
+          resolvedOutages: resolvedToday as any,
+        });
       } catch (err) {
         console.error('Failed to fetch daily reports:', err);
         setError(err instanceof Error ? err.message : 'Failed to load daily reports');
@@ -288,6 +444,46 @@ const DailyReports: React.FC = () => {
     // Update Y position after region table
     currentY = ((doc as any).lastAutoTable?.finalY || currentY) + 20;
 
+    // Add Carry-Over Outages
+    if (carryOverOutages.length > 0) {
+      doc.setFontSize(16);
+      doc.text('Carry-Over Outages (Unresolved from Previous Days)', 20, currentY);
+
+      const carryOverOutagesData = carryOverOutages.map(outage => [
+        outage.siteNo,
+        outage.siteCode,
+        outage.region,
+        outage.alarmType,
+        formatDateTime(outage.occurrenceTime),
+        Math.floor((new Date(selectedDate).getTime() - new Date(outage.occurrenceTime).getTime()) / (1000 * 60 * 60 * 24)).toString() + ' days',
+        formatDateTime(outage.expectedRestorationTime || outage.mandatoryRestorationTime),
+        outage.rootCause,
+        outage.status
+      ]);
+
+      autoTable(doc, {
+        startY: currentY + 10,
+        head: [['Site No', 'Site Code', 'Region', 'Alarm Type', 'Occurrence Time', 'Days Open', 'Expected Restoration', 'Root Cause', 'Status']],
+        body: carryOverOutagesData,
+        theme: 'grid',
+        headStyles: { fillColor: [255, 193, 7] },
+        styles: { fontSize: 7 },
+        columnStyles: {
+          0: { cellWidth: 15 },
+          1: { cellWidth: 15 },
+          2: { cellWidth: 20 },
+          3: { cellWidth: 15 },
+          4: { cellWidth: 25 },
+          5: { cellWidth: 15 },
+          6: { cellWidth: 25 },
+          7: { cellWidth: 25 },
+          8: { cellWidth: 15 }
+        },
+        margin: { top: 20 }
+      });
+      currentY = ((doc as any).lastAutoTable?.finalY || currentY) + 10;
+    }
+
     // Add Ongoing Outages
     doc.setFontSize(16);
     doc.text('Ongoing Outages', 20, currentY);
@@ -376,6 +572,7 @@ const DailyReports: React.FC = () => {
     doc.save(`daily-report-${selectedDate}.pdf`);
   };
 
+  // Loading State
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -387,6 +584,7 @@ const DailyReports: React.FC = () => {
     );
   }
 
+  // Error State
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -395,6 +593,7 @@ const DailyReports: React.FC = () => {
     );
   }
 
+  // No Data State
   if (!dailyReports) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -404,114 +603,188 @@ const DailyReports: React.FC = () => {
   }
 
   return (
-    <div className="p-6 bg-gray-900 min-h-screen text-white">
+    <div className="p-6 min-h-screen">
       <div className="max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Daily Reports</h1>
-        <div className="flex items-center space-x-4">
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm"
-          />
-          <button
-            onClick={exportToPDF}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded flex items-center space-x-2"
-            disabled={!dailyReports}
-          >
-            <Download className="w-4 h-4" />
-            <span>Export PDF</span>
-          </button>
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold text-foreground">Daily Reports</h1>
+          <div className="flex items-center space-x-4">
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="bg-background border border-input rounded px-3 py-2 text-sm text-foreground"
+            />
+            <button
+              onClick={exportToPDF}
+              className="px-4 py-2 rounded flex items-center space-x-2"
+              disabled={!dailyReports}
+            >
+              <Download className="w-4 h-4" />
+              <span>Export PDF</span>
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* Summary Stats Cards - Horizontal Scrollable */}
-      <div className="mb-6">
-        <div className="flex overflow-x-auto pb-2 -mx-2">
-          <div className="flex flex-nowrap gap-4 px-2">
-        {/* Total Tickets Card */}
-        <div className="bg-[#1e2230] rounded-lg border border-gray-800 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-400">Total Tickets</p>
-              <p className="text-2xl font-bold text-white">{dailyReports?.summary.totalReports || 0}</p>
-            </div>
-            <div className="p-3 rounded-full bg-blue-900/30">
-              <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
+        {/* Summary Stats Cards - Horizontal Scrollable */}
+        <div className="mb-6">
+          <div className="flex overflow-x-auto pb-2 -mx-2">
+            <div className="flex flex-nowrap gap-4 px-2">
+              {/* Total Tickets Card */}
+              <div className="bg-card rounded-lg border border-border p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Tickets</p>
+                    <p className="text-2xl font-bold text-foreground">{dailyReports?.summary.totalReports || 0}</p>
+                  </div>
+                  <div className="p-3 rounded-full bg-blue-900/30">
+                    <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* Resolved Card */}
+              <div className="bg-card rounded-lg border border-border p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Resolved</p>
+                    <p className="text-2xl font-bold text-green-400">{dailyReports?.summary.totalResolved || 0}</p>
+                    <p className="text-xs text-green-400">
+                      {dailyReports?.summary.totalReports ? 
+                        `${Math.round((dailyReports.summary.totalResolved / dailyReports.summary.totalReports) * 100)}% of total` : 
+                        '0% of total'}
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-full bg-green-900/30">
+                    <svg className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* In Progress Card */}
+              <div className="bg-card rounded-lg border border-border p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">In Progress</p>
+                    <p className="text-2xl font-bold text-yellow-400">{dailyReports?.summary.totalInProgress || 0}</p>
+                    <p className="text-xs text-yellow-400">
+                      {dailyReports?.summary.totalReports ? 
+                        `${Math.round((dailyReports.summary.totalInProgress / dailyReports.summary.totalReports) * 100)}% of total` : 
+                        '0% of total'}
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-full bg-yellow-900/30">
+                    <svg className="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* MTTR Card */}
+              <div className="bg-card rounded-lg border border-border p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">MTTR (minutes)</p>
+                    <p className="text-2xl font-bold text-purple-400">{dailyReports?.summary.mttr ? Math.round(dailyReports.summary.mttr) : 'N/A'}</p>
+                    <p className="text-xs text-muted-foreground">Mean Time To Resolve</p>
+                  </div>
+                  <div className="p-3 rounded-full bg-purple-900/30">
+                    <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Resolved Card */}
-        <div className="bg-[#1e2230] rounded-lg border border-gray-800 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-400">Resolved</p>
-              <p className="text-2xl font-bold text-green-400">{dailyReports?.summary.totalResolved || 0}</p>
-              <p className="text-xs text-green-400">
-                {dailyReports?.summary.totalReports ? 
-                  `${Math.round((dailyReports.summary.totalResolved / dailyReports.summary.totalReports) * 100)}% of total` : 
-                  '0% of total'}
-              </p>
+        {/* Outages Section */}
+        <div className="space-y-6">
+        {/* Carry-Over Outages Section */}
+        {carryOverOutages.length > 0 && (
+          <div className="bg-card rounded-lg border-2 border-border overflow-hidden">
+            <div className="px-6 py-4 border-b border-border bg-accent/20">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🟡</span>
+                <div>
+                  <h3 className="text-xl font-bold text-foreground">Carry-Over Outages (Unresolved from Previous Days)</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {carryOverOutages.length} incident{carryOverOutages.length !== 1 ? 's' : ''} from before {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} still pending resolution
+                  </p>
+                </div>
+              </div>
             </div>
-            <div className="p-3 rounded-full bg-green-900/30">
-              <svg className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-          </div>
-        </div>
 
-        {/* In Progress Card */}
-        <div className="bg-[#1e2230] rounded-lg border border-gray-800 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-400">In Progress</p>
-              <p className="text-2xl font-bold text-yellow-400">{dailyReports?.summary.totalInProgress || 0}</p>
-              <p className="text-xs text-yellow-400">
-                {dailyReports?.summary.totalReports ? 
-                  `${Math.round((dailyReports.summary.totalInProgress / dailyReports.summary.totalReports) * 100)}% of total` : 
-                  '0% of total'}
-              </p>
-            </div>
-            <div className="p-3 rounded-full bg-yellow-900/30">
-              <svg className="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-muted border-b border-border">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Site No</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Site Code</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Region</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Alarm Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Occurrence Time</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Days Open</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Expected Restoration Time</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Root Cause</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {carryOverOutages.map((outage) => {
+                    const selectedDateStart = new Date(selectedDate);
+                    selectedDateStart.setHours(0, 0, 0, 0);
+                    const daysOpen = Math.floor((selectedDateStart.getTime() - new Date(outage.occurrenceTime).getTime()) / (1000 * 60 * 60 * 24));
+                    return (
+                      <tr key={`carry-over-${outage.id}`} className="border-b border-border hover:bg-accent">
+                        <td className="px-4 py-3 text-sm text-foreground">{outage.siteNo}</td>
+                        <td className="px-4 py-3 text-sm text-foreground">{outage.siteCode}</td>
+                        <td className="px-4 py-3 text-sm text-foreground">{outage.region}</td>
+                        <td className={`px-4 py-3 text-sm ${getAlarmTypeColor(outage.alarmType)}`}>
+                          {outage.alarmType}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-foreground">
+                          {formatDateTime(outage.occurrenceTime)}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${daysOpen > 3 ? 'bg-red-900 text-red-200' : daysOpen > 1 ? 'bg-orange-900 text-orange-200' : 'bg-yellow-900 text-yellow-200'}`}>
+                            {daysOpen} day{daysOpen !== 1 ? 's' : ''}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-foreground">
+                          <span className="text-primary font-semibold">
+                            {outage.expectedRestorationTime ? formatDateTime(outage.expectedRestorationTime) : 'Not set'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-foreground">
+                          <span className="italic text-yellow-300">{outage.rootCause || 'Under Investigation'}</span>
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadgeColor(outage.status)}`}>
+                            {outage.status}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* MTTR Card */}
-        <div className="bg-[#1e2230] rounded-lg border border-gray-800 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-400">MTTR (minutes)</p>
-              <p className="text-2xl font-bold text-purple-400">{dailyReports?.summary.mttr ? Math.round(dailyReports.summary.mttr) : 'N/A'}</p>
-              <p className="text-xs text-gray-400">Mean Time To Resolve</p>
-            </div>
-            <div className="p-3 rounded-full bg-purple-900/30">
-              <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-          </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Outages Section */}
-      <div className="space-y-6">
         {/* Ongoing Outages */}
-        <div className="bg-[#1e2230] rounded-lg border border-gray-800 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-800 bg-red-900/20">
+        <div className="bg-card rounded-lg border border-border overflow-hidden">
+          <div className="px-6 py-4 border-b border-border bg-destructive/10">
             <div className="flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-red-500" />
-              <h3 className="text-xl font-bold text-white">
-                🔴 Ongoing Outages ({ongoingOutages.length})
+              <AlertCircle className="w-5 h-5 text-destructive" />
+              <h3 className="text-xl font-bold text-foreground">
+                🔴 Today's Ongoing Outages ({ongoingOutages.length})
               </h3>
             </div>
           </div>
@@ -519,36 +792,36 @@ const DailyReports: React.FC = () => {
           {ongoingOutages.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-[#151820] border-b border-gray-800">
+                <thead className="bg-muted border-b border-border">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Site No</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Site Code</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Region</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Alarm Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Occurrence Time</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Expected Restoration Time</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Root Cause</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Site No</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Site Code</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Region</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Alarm Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Occurrence Time</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Expected Restoration Time</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Root Cause</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ongoingOutages.map((outage) => (
-                    <tr key={`ongoing-${outage.id}`} className="border-b border-gray-800 hover:bg-gray-800/50">
-                      <td className="px-4 py-3 text-sm text-gray-300">{outage.siteNo}</td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{outage.siteCode}</td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{outage.region}</td>
+                    <tr key={`ongoing-${outage.id}`} className="border-b border-border hover:bg-accent">
+                      <td className="px-4 py-3 text-sm text-foreground">{outage.siteNo}</td>
+                      <td className="px-4 py-3 text-sm text-foreground">{outage.siteCode}</td>
+                      <td className="px-4 py-3 text-sm text-foreground">{outage.region}</td>
                       <td className={`px-4 py-3 text-sm ${getAlarmTypeColor(outage.alarmType)}`}>
                         {outage.alarmType}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-300">
+                      <td className="px-4 py-3 text-sm text-foreground">
                         {formatDateTime(outage.occurrenceTime)}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-300">
-                        <span className="text-blue-400 font-semibold">
+                      <td className="px-4 py-3 text-sm text-foreground">
+                        <span className="text-primary font-semibold">
                           {outage.expectedRestorationTime ? formatDateTime(outage.expectedRestorationTime) : 'Not set'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-300">
+                      <td className="px-4 py-3 text-sm text-foreground">
                         <span className="italic text-yellow-300">{outage.rootCause || 'Under Investigation'}</span>
                       </td>
                       <td className="px-4 py-3 text-sm">
@@ -563,17 +836,17 @@ const DailyReports: React.FC = () => {
             </div>
           ) : (
             <div className="text-center py-12">
-              <p className="text-gray-400">✅ No ongoing outages</p>
+              <p className="text-muted-foreground">✅ No ongoing outages</p>
             </div>
           )}
         </div>
 
         {/* Resolved Outages */}
-        <div className="bg-[#1e2230] rounded-lg border border-gray-800 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-800 bg-green-900/20">
+        <div className="bg-card rounded-lg border border-border overflow-hidden">
+          <div className="px-6 py-4 border-b border-border bg-success/10">
             <div className="flex items-center gap-2">
               <CheckCircle className="w-5 h-5 text-green-500" />
-              <h3 className="text-xl font-bold text-white">
+              <h3 className="text-xl font-bold text-foreground">
                 ✅ Resolved Outages ({resolvedOutages.length})
               </h3>
             </div>
@@ -582,39 +855,39 @@ const DailyReports: React.FC = () => {
           {resolvedOutages.length > 0 ? (
             <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-[#151820] border-b border-gray-800">
+                  <thead className="bg-muted border-b border-border">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Site No</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Site Code</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Region</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Alarm Type</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Occurrence Time</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Resolution Time</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">SLA Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Root Cause</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Site No</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Site Code</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Region</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Alarm Type</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Occurrence Time</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Resolution Time</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">SLA Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Root Cause</th>
                     </tr>
                   </thead>
                   <tbody>
                     {resolvedOutages.map((outage) => {
                       const slaStatus = getSlaStatus(outage);
                       return (
-                        <tr key={outage.id} className="border-b border-gray-800 hover:bg-gray-800/50">
-                          <td className="px-4 py-3 text-sm text-gray-300">{outage.siteNo}</td>
-                          <td className="px-4 py-3 text-sm text-gray-300">{outage.siteCode}</td>
-                          <td className="px-4 py-3 text-sm text-gray-300">{outage.region}</td>
+                        <tr key={outage.id} className="border-b border-border hover:bg-accent">
+                          <td className="px-4 py-3 text-sm text-foreground">{outage.siteNo}</td>
+                          <td className="px-4 py-3 text-sm text-foreground">{outage.siteCode}</td>
+                          <td className="px-4 py-3 text-sm text-foreground">{outage.region}</td>
                           <td className={`px-4 py-3 text-sm ${getAlarmTypeColor(outage.alarmType)}`}>
                             {outage.alarmType}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-300">
+                          <td className="px-4 py-3 text-sm text-foreground">
                             {formatDateTime(outage.occurrenceTime)}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-300">
+                          <td className="px-4 py-3 text-sm text-foreground">
                             {outage.resolutionTime ? formatDateTime(outage.resolutionTime) : 'N/A'}
                           </td>
                           <td className={`px-4 py-3 text-sm ${slaStatus.color}`}>
                             {slaStatus.status}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-300">
+                          <td className="px-4 py-3 text-sm text-foreground">
                             <span className="italic text-yellow-300">{outage.rootCause || 'Not specified'}</span>
                           </td>
                         </tr>
@@ -625,7 +898,7 @@ const DailyReports: React.FC = () => {
               </div>
             ) : (
               <div className="text-center py-12">
-                <p className="text-gray-400">No resolved outages found</p>
+                <p className="text-muted-foreground">No resolved outages found</p>
               </div>
             )}
           </div>
@@ -635,18 +908,18 @@ const DailyReports: React.FC = () => {
       {/* Detailed Tables */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Root Cause Breakdown */}
-        <div className="bg-[#1e2230] rounded-lg p-6 border border-gray-800">
-          <h3 className="text-white text-lg font-semibold mb-4">Detailed Root Cause Breakdown</h3>
+        <div className="bg-card rounded-lg p-6 border border-border">
+          <h3 className="text-foreground text-lg font-semibold mb-4">Detailed Root Cause Breakdown</h3>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="text-left text-gray-400 text-sm border-b border-gray-700">
+                <tr className="text-left text-muted-foreground text-sm border-b border-border">
                   <th className="pb-3">Root Cause</th>
                   <th className="text-right pb-3">Count</th>
                   <th className="text-right pb-3">Percentage</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-700">
+              <tbody className="divide-y divide-border">
                 {dailyReports.alarmsByRootCause
                   .sort((a, b) => b.count - a.count)
                   .map((item) => {
@@ -656,9 +929,9 @@ const DailyReports: React.FC = () => {
                     
                     return (
                       <tr key={item.rootCause}>
-                        <td className="py-3 text-gray-300">{item.rootCause || 'Not specified'}</td>
-                        <td className="text-right text-blue-400 font-medium">{item.count}</td>
-                        <td className="text-right text-gray-400">{percentage}%</td>
+                        <td className="py-3 text-foreground">{item.rootCause || 'Not specified'}</td>
+                        <td className="text-right text-primary font-medium">{item.count}</td>
+                        <td className="text-right text-muted-foreground">{percentage}%</td>
                       </tr>
                     );
                   })}
@@ -668,11 +941,11 @@ const DailyReports: React.FC = () => {
         </div>
 
         {/* Tickets Per Region */}
-        <div className="bg-[#1e2230] rounded-lg border border-gray-800 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-800 bg-blue-900/20">
+        <div className="bg-card rounded-lg border border-border overflow-hidden">
+          <div className="px-6 py-4 border-b border-border bg-primary/10">
             <div className="flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-blue-500" />
-              <h3 className="text-xl font-bold text-white">
+              <AlertCircle className="w-5 h-5 text-primary" />
+              <h3 className="text-xl font-bold text-foreground">
                 📊 Tickets Per Region ({(dailyReports.ticketsPerRegion || []).length} regions)
               </h3>
             </div>
@@ -681,17 +954,17 @@ const DailyReports: React.FC = () => {
           {(dailyReports.ticketsPerRegion || []).length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-[#151820] border-b border-gray-800">
+                <thead className="bg-muted border-b border-border">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Region</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Total Tickets</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">In Progress</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Resolved</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Within SLA</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Out of SLA</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Critical</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Major</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Minor</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Region</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Total Tickets</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">In Progress</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Resolved</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Within SLA</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Out of SLA</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Critical</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Major</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Minor</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -716,9 +989,9 @@ const DailyReports: React.FC = () => {
                     });
                     
                     return (
-                      <tr key={`${region}-${index}`} className="border-b border-gray-800 hover:bg-gray-800/50">
-                        <td className="px-4 py-3 text-sm font-semibold text-white">{region}</td>
-                        <td className="px-4 py-3 text-sm text-blue-400 font-bold">{regionData.totalTickets || 0}</td>
+                      <tr key={`${region}-${index}`} className="border-b border-border hover:bg-accent">
+                        <td className="px-4 py-3 text-sm font-semibold text-foreground">{region}</td>
+                        <td className="px-4 py-3 text-sm text-primary font-bold">{regionData.totalTickets || 0}</td>
                         <td className="px-4 py-3 text-sm text-yellow-400">{regionData.inProgressTickets || 0}</td>
                         <td className="px-4 py-3 text-sm text-green-400">{resolvedTickets}</td>
                         <td className="px-4 py-3 text-sm text-green-500 font-semibold">
@@ -738,17 +1011,15 @@ const DailyReports: React.FC = () => {
             </div>
           ) : (
             <div className="text-center py-12">
-              <p className="text-gray-400">No regional ticket data available</p>
+              <p className="text-muted-foreground">No regional ticket data available</p>
             </div>
           )}
         </div>
-        </div>
-      </div>
       </div>
 
       {/* Region-wise Analysis - Count-based */}
       <div className="mt-8">
-        <h2 className="text-2xl font-bold text-white mb-4">Region-wise Analysis</h2>
+        <h2 className="text-2xl font-bold text-foreground mb-4">Region-wise Analysis</h2>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {dailyReports.ticketsPerRegion.map((regionData) => {
@@ -776,9 +1047,9 @@ const DailyReports: React.FC = () => {
               .slice(0, 3); // Show top 3 causes
 
             return (
-              <div key={region} className="bg-[#1e2230] rounded-lg p-4 border border-gray-800 hover:border-blue-500 transition-colors">
+              <div key={region} className="bg-card rounded-lg p-4 border border-border hover:border-primary transition-colors">
                 <div className="flex justify-between items-start mb-3">
-                  <h3 className="text-lg font-semibold text-white">{region}</h3>
+                  <h3 className="text-lg font-semibold text-foreground">{region}</h3>
                   <div className={`px-2 py-1 rounded text-xs font-medium ${
                     slaPercentage >= 90 ? 'bg-green-900/30 text-green-400' : 
                     slaPercentage >= 70 ? 'bg-yellow-900/30 text-yellow-400' : 
@@ -790,44 +1061,44 @@ const DailyReports: React.FC = () => {
                 
                 <div className="space-y-3">
                   <div>
-                    <h4 className="text-sm font-medium text-gray-400 mb-1">SLA Compliance</h4>
+                    <h4 className="text-sm font-medium text-muted-foreground mb-1">SLA Compliance</h4>
                     <div className="flex items-center space-x-2">
-                      <div className="flex-1 bg-gray-700 rounded-full h-2">
+                      <div className="flex-1 bg-muted rounded-full h-2">
                         <div 
                           className="bg-gradient-to-r from-green-500 to-red-500 h-2 rounded-full" 
                           style={{ width: `${slaPercentage}%` }}
                         />
                       </div>
-                      <span className="text-xs text-gray-400 w-16 text-right">
+                      <span className="text-xs text-muted-foreground w-16 text-right">
                         {withinSLA}/{totalSLA || '0'}
                       </span>
                     </div>
                   </div>
 
                   <div>
-                    <h4 className="text-sm font-medium text-gray-400 mb-1">Top Causes</h4>
+                    <h4 className="text-sm font-medium text-muted-foreground mb-1">Top Causes</h4>
                     <div className="space-y-1">
                       {sortedCauses.length > 0 ? (
                         sortedCauses.map(([cause, count]) => (
                           <div key={cause} className="flex justify-between text-sm">
-                            <span className="text-gray-300 truncate pr-2">{cause}</span>
-                            <span className="text-gray-400 font-medium">{count}</span>
+                            <span className="text-foreground truncate pr-2">{cause}</span>
+                            <span className="text-muted-foreground font-medium">{count}</span>
                           </div>
                         ))
                       ) : (
-                        <div className="text-sm text-gray-500">No data available</div>
+                        <div className="text-sm text-muted-foreground">No data available</div>
                       )}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-800">
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border">
                     <div className="text-center">
                       <div className="text-2xl font-bold text-green-400">{withinSLA}</div>
-                      <div className="text-xs text-gray-400">Within SLA</div>
+                      <div className="text-xs text-muted-foreground">Within SLA</div>
                     </div>
                     <div className="text-center">
                       <div className="text-2xl font-bold text-red-400">{outOfSLA}</div>
-                      <div className="text-xs text-gray-400">Out of SLA</div>
+                      <div className="text-xs text-muted-foreground">Out of SLA</div>
                     </div>
                   </div>
                 </div>
@@ -836,6 +1107,7 @@ const DailyReports: React.FC = () => {
           })}
         </div>
       </div>
+    </div>
     </div>
   );
 };

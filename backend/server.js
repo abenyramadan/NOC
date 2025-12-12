@@ -41,6 +41,7 @@ import integrationRoutes from './routes/integrations.js';
 import reportsRoutes from './routes/reports.js';
 import outageReportRoutes from './routes/outageReports.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import emailConfigRoutes from './routes/emailConfig.js';
 import OutageReport from './models/OutageReport.js';
 
 // Now import services that depend on environment variables
@@ -80,6 +81,8 @@ const corsOptions = {
     const allowedOrigins = [
       'http://localhost:8080', // Frontend dev server
       'http://localhost:8081',
+      'http://127.0.0.1:8080', // Localhost alternative
+      'http://192.168.133.41:8080',
       'http://192.168.133.55:8081'
     ];
 
@@ -156,6 +159,7 @@ mongoose.connect(process.env.MONGODB_URI)
   process.exit(1);
 });
 
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
@@ -166,6 +170,7 @@ app.use('/api/integrations', integrationRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/outage-reports', outageReportRoutes);
 app.use('/api', notificationRoutes);
+app.use('/api/email', emailConfigRoutes);
 
 // Handle outage report form submissions from emails
 app.post('/update-from-email', async (req, res) => {

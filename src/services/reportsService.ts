@@ -1,4 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export interface AlarmStats {
   totalAlarms: number;
@@ -45,7 +46,7 @@ class ReportsService {
   }
 
   async getAlarmStats(): Promise<AlarmStats> {
-    const response = await fetch(`${API_BASE_URL}/reports/stats`, {
+    const response = await fetch(`${API_BASE_URL}/api/reports/stats`, {
       method: 'GET',
       headers: this.getAuthHeaders(),
     });
@@ -72,7 +73,7 @@ class ReportsService {
   }
 
   async getTicketStats(): Promise<TicketStats> {
-    const response = await fetch(`${API_BASE_URL}/reports/tickets`, {
+    const response = await fetch(`${API_BASE_URL}/api/reports/tickets`, {
       method: 'GET',
       headers: this.getAuthHeaders(),
     });
@@ -97,7 +98,7 @@ class ReportsService {
 
   async getHistoricalReports(queryParams?: string): Promise<HistoricalReportsResponse> {
     try {
-      const url = `${API_BASE_URL}/reports/historical${queryParams ? `?${queryParams}` : ''}`;
+      const url = `${API_BASE_URL}/api/reports/historical${queryParams ? `?${queryParams}` : ''}`;
 
       const response = await fetch(url, {
         method: 'GET',
@@ -134,7 +135,7 @@ class ReportsService {
       if (filters.alarmTypes?.length > 0) queryParams.append('alarmTypes', filters.alarmTypes.join(','));
       if (filters.statuses?.length > 0) queryParams.append('statuses', filters.statuses.join(','));
 
-      const response = await fetch(`${API_BASE_URL}/reports/historical/export?${queryParams.toString()}`, {
+      const response = await fetch(`${API_BASE_URL}/api/reports/historical/export?${queryParams.toString()}`, {
         method: 'GET',
         headers: this.getAuthHeaders(),
       });
@@ -180,6 +181,8 @@ export interface HistoricalReport {
   occurrenceTime: string;
   resolutionTime?: string;
   expectedResolutionHours?: number;
+  mandatoryRestorationTime?: string;
+  expectedRestorationTime?: string;
   status: string;
   rootCause?: string;
   supervisor?: string;
@@ -196,6 +199,15 @@ export interface HistoricalStats {
   slaCompliance: number;
   withinSLA: number;
   totalResolved: number;
+  ticketsPerRegion?: Array<{
+    region: string;
+    totalTickets: number;
+    inProgressTickets: number;
+    resolvedTickets: number;
+    criticalAlarms: number;
+    majorAlarms: number;
+    minorAlarms: number;
+  }>;
 }
 
 export interface HistoricalReportsResponse {

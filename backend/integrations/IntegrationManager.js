@@ -71,7 +71,8 @@ export class IntegrationManager {
         password: process.env.IMASTER_MAE_PASSWORD,
         enabled: process.env.IMASTER_MAE_ENABLED !== 'false',
         alarmEndpoint: process.env.IMASTER_MAE_ALARM_ENDPOINT,
-        deviceEndpoint: process.env.IMASTER_MAE_DEVICE_ENDPOINT
+        deviceEndpoint: process.env.IMASTER_MAE_DEVICE_ENDPOINT,
+        rejectUnauthorized: process.env.IMASTER_MAE_REJECT_UNAUTHORIZED !== 'false'
       };
 
       if (maeConfig.baseUrl) {

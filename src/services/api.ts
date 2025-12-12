@@ -11,7 +11,12 @@ export type ApiRequestConfig = {
 
 // Resolve baseURL safely for browser
 const resolveBaseURL = (): string => {
-  // Try to get from environment variable (CRA style, guarded for browser)
+  // Try to get from Vite environment variable first
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+
+  // Try to get from CRA style environment variable (fallback)
   try {
     if (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL) {
       return process.env.REACT_APP_API_URL;
@@ -23,11 +28,11 @@ const resolveBaseURL = (): string => {
   // Fallback: infer from current host (assumes backend on 3000 during dev)
   if (typeof window !== 'undefined' && window.location) {
     const { protocol, hostname } = window.location;
-    return `${protocol}//${hostname}:3000/api`;
+    return `${protocol}//${hostname}:3000`;
   }
 
   // Final fallback
-  return 'http://localhost:3000/api';
+  return 'http://localhost:3000';
 };
 
 // Create an axios instance with default config

@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export interface Site {
   id: string;
@@ -75,7 +75,7 @@ class SiteManagementService {
       if (params?.page) queryParams.append('page', params.page.toString());
       if (params?.limit) queryParams.append('limit', params.limit.toString());
 
-      const url = `${API_BASE_URL}/sites${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const url = `${API_BASE_URL}/api/sites${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
 
       const response = await fetch(url, {
         method: 'GET',
@@ -96,7 +96,7 @@ class SiteManagementService {
 
   async createSite(siteData: CreateSiteRequest): Promise<Site> {
     try {
-      const response = await fetch(`${API_BASE_URL}/sites`, {
+      const response = await fetch(`${API_BASE_URL}/api/sites`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(siteData),
@@ -117,7 +117,7 @@ class SiteManagementService {
 
   async updateSite(id: string, siteData: UpdateSiteRequest): Promise<Site> {
     try {
-      const response = await fetch(`${API_BASE_URL}/sites/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/sites/${id}`, {
         method: 'PUT',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(siteData),
@@ -138,7 +138,7 @@ class SiteManagementService {
 
   async deleteSite(id: string): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE_URL}/sites/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/sites/${id}`, {
         method: 'DELETE',
         headers: this.getAuthHeaders(),
       });
@@ -162,7 +162,7 @@ class SiteManagementService {
     byState: Array<{ _id: string; count: number; onAir: number; }>;
   }> {
     try {
-      const response = await fetch(`${API_BASE_URL}/sites/stats/summary`, {
+      const response = await fetch(`${API_BASE_URL}/api/sites/stats/summary`, {
         method: 'GET',
         headers: this.getAuthHeaders(),
       });

@@ -114,10 +114,10 @@ class EmailService {
       console.log(`📨 Sending email to: ${recipients.join(', ')}`);
 
       const severityLabels = {
-        critical: '🔴 CRITICAL',
-        major: '🟠 MAJOR', 
-        minor: '🟡 MINOR',
-        warning: '🔵 WARNING'
+        critical: 'CRITICAL',
+        major: 'MAJOR', 
+        minor: 'MINOR',
+        warning: 'WARNING'
       };
 
       const severity = alarmData.severity?.toLowerCase() || 'warning';
@@ -129,7 +129,7 @@ class EmailService {
       const mailOptions = {
         from: process.env.FROM_EMAIL,
         to: recipients.join(', '),
-        subject: `🚨 ${severityLabel} Alarm - ${alarmData.siteName || 'Unknown Site'}`,
+        subject: `${severityLabel} Alarm - ${alarmData.siteName || 'Unknown Site'}`,
         text: textContent,
         html: htmlContent,
         // Add headers for better email deliverability
@@ -209,83 +209,93 @@ class EmailService {
     };
 
     const severity = alarmData.severity?.toLowerCase() || 'warning';
-    const color = severityColors[severity] || severityColors.warning;
 
     return `
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <title>🚨 NOC Alert - ${alarmData.siteName || 'Unknown Site'}</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
-        .container { max-width: 600px; margin: 0 auto; background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .header { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
-        .content { padding: 30px; }
-        .alarm-card { background-color: #f8fafc; border-left: 4px solid ${color}; padding: 20px; margin: 20px 0; border-radius: 4px; }
-        .severity-badge { display: inline-block; background-color: ${color}; color: white; padding: 8px 16px; border-radius: 20px; font-weight: bold; font-size: 14px; }
-        .details { margin: 15px 0; }
-        .details dt { font-weight: bold; color: #374151; margin-top: 10px; }
-        .details dd { margin: 5px 0 15px 0; color: #6b7280; font-family: monospace; }
-        .footer { background-color: #f8fafc; padding: 20px; text-align: center; border-radius: 0 0 8px 8px; color: #6b7280; font-size: 14px; }
-        .timestamp { color: #9ca3af; font-size: 12px; }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NOC Alert - ${alarmData.siteName || 'Unknown Site'}</title>
+  <style>
+    /* Base */
+    body { margin: 0; padding: 0; background: #f8fafc; color: #111827; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; font-size: 16px; line-height: 1.5; }
+    .container { width: 100%; max-width: 100%; margin: 0; padding: 14px; }
+    .card { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(16,24,40,0.04); }
+    /* Header */
+    .bar { height: 3px; background: #e5e7eb; }
+    .header { padding: 12px 14px 6px 14px; }
+    .title { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: .2px; }
+    .subtle { color: #6b7280; font-size: 12px; margin-top: 2px; }
+    /* Badge */
+    .badge { display: inline-block; background: #ffffff; color: #111827; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 700; border: 1px solid #d1d5db; }
+    /* Content */
+    .section { padding: 10px 14px; }
+    .section + .section { border-top: 1px solid #f3f4f6; }
+    .kvs { width: 100%; border-collapse: collapse; }
+    .kvs td { padding: 3px 0; font-size: 14px; vertical-align: top; }
+    .kvs td.key { color: #6b7280; width: 38%; }
+    .kvs td.val { color: #111827; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color: #374151; }
+    /* Footer */
+    .footer { padding: 10px 14px; background: #f9fafb; color: #6b7280; font-size: 11px; text-align: center; }
+    /* Responsive */
+    @media (max-width: 480px) {
+      body { font-size: 16px !important; line-height: 1.5 !important; }
+      .title { font-size: 18px !important; }
+      .subtle { font-size: 13px !important; }
+      .kvs td { font-size: 14px !important; }
+      .badge { font-size: 12px !important; padding: 4px 10px !important; }
+      .section, .header, .footer { padding-left: 10px; padding-right: 10px; }
+      .kvs td.key { width: 42%; font-weight: 600 !important; }
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🚨 NOC Alert System</h1>
-            <p>New alarm detected requiring immediate attention</p>
-        </div>
-
-        <div class="content">
-            <div class="alarm-card">
-                <div style="margin-bottom: 15px;">
-                    <span class="severity-badge">${severityLabel}</span>
-                </div>
-
-                <h2>Alarm Details</h2>
-
-                <dl class="details">
-                    <dt>Site Name:</dt>
-                    <dd>${alarmData.siteName || 'Unknown'}</dd>
-
-                    ${alarmData.siteId ? `<dt>Site ID:</dt><dd>${alarmData.siteId}</dd>` : ''}
-
-                    <dt>Alarm Type:</dt>
-                    <dd>${alarmData.alarmType || 'Unknown'}</dd>
-
-                    <dt>Description:</dt>
-                    <dd>${alarmData.description || 'No description provided'}</dd>
-
-                    ${alarmData.source ? `<dt>Source:</dt><dd>${alarmData.source}</dd>` : ''}
-
-                    <dt>Timestamp:</dt>
-                    <dd>${(alarmData.timestamp ? new Date(alarmData.timestamp) : new Date()).toLocaleString()}</dd>
-                </dl>
-            </div>
-
-            <div style="background-color: #eff6ff; padding: 15px; border-radius: 4px; margin-top: 20px;">
-                <p style="margin: 0; color: #1e40af;">
-                    ⚡ This is an automated alert from the NOC Alert System.
-                    Please investigate and resolve this alarm as soon as possible.
-                </p>
-            </div>
-        </div>
-
-        <div class="footer">
-            <p>NOC Alert System - Automated Monitoring</p>
-            <p class="timestamp">Generated on ${new Date().toLocaleString()}</p>
-        </div>
+  <div class="container">
+    <div class="card">
+      <div class="bar"></div>
+      <div class="header">
+        <div class="badge">${severityLabel}</div>
+        <h1 class="title" style="margin-top: 6px;">${alarmData.siteName || 'Unknown Site'}</h1>
+        <div class="subtle">${new Date(alarmData.timestamp).toLocaleString()}</div>
+      </div>
+      <div class="section">
+        <table class="kvs" role="presentation" cellspacing="0" cellpadding="0">
+          <tr>
+            <td class="key">Site ID</td>
+            <td class="val mono">${alarmData.siteId || 'N/A'}</td>
+          </tr>
+          <tr>
+            <td class="key">Severity</td>
+            <td class="val">${(alarmData.severity || 'N/A').toString().toUpperCase()}</td>
+          </tr>
+          <tr>
+            <td class="key">Alarm Type</td>
+            <td class="val">${alarmData.alarmType || 'N/A'}</td>
+          </tr>
+          <tr>
+            <td class="key">Description</td>
+            <td class="val">${alarmData.description || 'N/A'}</td>
+          </tr>
+          <tr>
+            <td class="key">Source</td>
+            <td class="val">${alarmData.source || 'N/A'}</td>
+          </tr>
+        </table>
+      </div>
+      <div class="footer">
+        NOC Alert • Automated notification
+      </div>
     </div>
+  </div>
 </body>
-</html>
-    `;
+</html>`;
   }
 
   generateAlarmEmailText(alarmData, severityLabel) {
     return `
-🚨 NOC ALERT - ${alarmData.siteName || 'Unknown Site'}
+NOC ALERT - ${alarmData.siteName || 'Unknown Site'}
 
 SEVERITY: ${severityLabel}
 SITE: ${alarmData.siteName || 'Unknown'} ${alarmData.siteId ? `(${alarmData.siteId})` : ''}

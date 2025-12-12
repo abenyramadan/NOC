@@ -44,12 +44,14 @@ router.post('/login', [
     // Find user by username or email
     const user = await User.findByUsernameOrEmail(username).select('+password');
 
+    console.log("user ", user);
+    
     console.log('🔍 Login attempt:', { username, userFound: !!user, userId: user?._id });
 
     if (!user) {
       console.log('❌ User not found for username:', username);
       // Debug: Let's check what users actually exist
-      const allUsers = await User.find({}, 'username email role').limit(10);
+      const allUsers = await User.find({username:username}, 'username email role').limit(10);
       console.log('📋 Available users in database:', allUsers.map(u => ({ username: u.username, email: u.email, role: u.role })));
       await logAudit(req, {
         action: 'auth:login',

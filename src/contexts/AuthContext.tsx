@@ -38,7 +38,7 @@ const ROLE_PERMISSIONS = {
     canManageSettings: true
   },
   admin: {
-    canView: ['dashboard', 'alarms', 'sites', 'users', 'notifications', 'audit', 'settings', 'tickets', 'reports', 'outage-reports', 'hourly-reports'],
+    canView: ['dashboard', 'alarms', 'sites', 'users', 'notifications', 'audit', 'settings', 'tickets', 'reports', 'outage-reports', 'hourly-reports', 'email-management'],
     canEdit: ['alarms', 'sites', 'users', 'settings', 'tickets'],
     canDelete: ['alarms', 'sites', 'users', 'tickets'],
     canManageUsers: true,

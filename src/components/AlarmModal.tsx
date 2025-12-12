@@ -21,50 +21,50 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ alarm, onClose, onAcknow
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-[#1a1d29] rounded-lg max-w-2xl w-full border border-gray-800 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="border-b border-gray-800 p-6">
+      <div className="bg-card rounded-lg max-w-2xl w-full border border-border shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="border-b border-border p-6">
           <div className="flex items-start justify-between">
             <div>
-              <h2 className="text-2xl font-bold text-white mb-2">Alarm Details</h2>
+              <h2 className="text-2xl font-bold text-foreground mb-2">Alarm Details</h2>
               <span className={`px-3 py-1 rounded text-sm font-semibold border ${severityColors[alarm.severity]}`}>
                 {alarm.severity.toUpperCase()}
               </span>
             </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">&times;</button>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-2xl">&times;</button>
           </div>
         </div>
         
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-xs text-gray-500 mb-1">Alarm ID</p>
-              <p className="text-white font-mono">{alarm.id}</p>
+              <p className="text-xs text-muted-foreground mb-1">Alarm ID</p>
+              <p className="text-foreground font-mono">{alarm.id}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 mb-1">Device</p>
-              <p className="text-white">{alarm.deviceName}</p>
+              <p className="text-xs text-muted-foreground mb-1">Device</p>
+              <p className="text-foreground">{alarm.deviceName}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 mb-1">Alarm Type</p>
-              <p className="text-white">{alarm.alarmType}</p>
+              <p className="text-xs text-muted-foreground mb-1">Alarm Type</p>
+              <p className="text-foreground">{alarm.alarmType}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 mb-1">Source IP</p>
-              <p className="text-white font-mono">{alarm.source}</p>
+              <p className="text-xs text-muted-foreground mb-1">Source IP</p>
+              <p className="text-foreground font-mono">{alarm.source}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 mb-1">Timestamp</p>
-              <p className="text-white">{new Date(alarm.timestamp).toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground mb-1">Timestamp</p>
+              <p className="text-foreground">{new Date(alarm.timestamp).toLocaleString()}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 mb-1">Status</p>
-              <p className="text-white capitalize">{alarm.status}</p>
+              <p className="text-xs text-muted-foreground mb-1">Status</p>
+              <p className="text-foreground capitalize">{alarm.status}</p>
             </div>
           </div>
           
           <div>
-            <p className="text-xs text-gray-500 mb-1">Description</p>
-            <p className="text-gray-300">{alarm.description}</p>
+            <p className="text-xs text-muted-foreground mb-1">Description</p>
+            <p className="text-foreground">{alarm.description}</p>
           </div>
           
           {alarm.acknowledgedBy && (
@@ -76,12 +76,12 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ alarm, onClose, onAcknow
           )}
         </div>
         
-        <div className="border-t border-gray-800 p-6 flex gap-3">
+        <div className="border-t border-border p-6 flex gap-3">
           {alarm.status === 'active' && (
             <>
               <button
                 onClick={() => { onAcknowledge(alarm.id); onClose(); }}
-                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded transition-colors"
+                className="px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded transition-colors"
               >
                 Acknowledge
               </button>
@@ -93,7 +93,7 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ alarm, onClose, onAcknow
               </button>
             </>
           )}
-          <button onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors">
+          <button onClick={onClose} className="px-4 py-2 bg-accent hover:bg-accent/90 text-accent-foreground rounded transition-colors">
             Close
           </button>
         </div>

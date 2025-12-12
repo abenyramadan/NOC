@@ -45,6 +45,18 @@
     --sidebar-accent-foreground: 215 25% 27%;
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 221 83% 53%;
+    
+    /* Application specific colors */
+    --app-background: 210 40% 98%;
+    --app-card: 0 0% 100%;
+    --app-card-border: 214.3 31.8% 91.4%;
+    --app-text-primary: 222.2 84% 4.9%;
+    --app-text-secondary: 215.4 16.3% 46.9%;
+    --app-text-muted: 215.4 16.3% 46.9%;
+    --app-input-bg: 0 0% 100%;
+    --app-input-border: 214.3 31.8% 91.4%;
+    --app-header-bg: 0 0% 100%;
+    --app-header-text: 222.2 84% 4.9%;
   }
 
   .dark {
@@ -84,6 +96,18 @@
     --sidebar-accent-foreground: 210 40% 98%;
     --sidebar-border: 215 25% 27%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+    
+    /* Application specific colors */
+    --app-background: 222.2 84% 4.9%;
+    --app-card: 222.2 84% 4.9%;
+    --app-card-border: 217.2 32.6% 17.5%;
+    --app-text-primary: 210 40% 98%;
+    --app-text-secondary: 215 20.2% 65.1%;
+    --app-text-muted: 215 20.2% 65.1%;
+    --app-input-bg: 222.2 84% 4.9%;
+    --app-input-border: 217.2 32.6% 17.5%;
+    --app-header-bg: 222.2 84% 4.9%;
+    --app-header-text: 210 40% 98%;
   }
 }
 
@@ -93,7 +117,9 @@
   }
 
   body {
-    @apply bg-background text-foreground font-sans dark:bg-background dark:text-foreground;
+    @apply font-sans;
+    background-color: hsl(var(--app-background));
+    color: hsl(var(--app-text-primary));
   }
 
   pre, code {

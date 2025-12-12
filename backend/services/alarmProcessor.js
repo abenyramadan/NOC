@@ -312,7 +312,7 @@ export class AlarmProcessor {
     } else if (name.includes('wau') || name.includes('raja') || name.includes('tonj')) {
       return 'W.E.S';
     } else if (name.includes('malakal') || name.includes('kodok') || name.includes('nasir')) {
-      return 'Upper Nile';
+      return 'UPPERNILE';
     } else if (name.includes('aweil') || name.includes('wunrok') || name.includes('kuajok')) {
       return 'Bahr gha zal';
     } else if (name.includes('bentiu') || name.includes('rubkona') || name.includes('leer')) {
