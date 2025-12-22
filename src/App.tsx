@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
+import ChangePassword from "./pages/ChangePassword";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -17,7 +18,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredPermission?:
   children,
   requiredPermission = 'dashboard'
 }) => {
-  const { isAuthenticated, isLoading, canView } = useAuth();
+  const { isAuthenticated, isLoading, canView, user } = useAuth();
 
   if (isLoading) {
     return (
@@ -29,6 +30,12 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredPermission?:
 
   if (!isAuthenticated) {
     return <Login />;
+  }
+
+  // Check if user must change password - redirect to change password page
+  if (user?.mustChangePassword && window.location.pathname !== '/change-password') {
+    window.location.href = '/change-password';
+    return null;
   }
 
   if (!canView(requiredPermission)) {
@@ -60,6 +67,7 @@ const AppContent = () => {
         }
       />
       <Route path="/login" element={<Login />} />
+      <Route path="/change-password" element={<ChangePassword />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

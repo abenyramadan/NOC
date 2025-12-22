@@ -30,18 +30,21 @@ async function cleanupAllData() {
     const { default: Alarm } = await import('../models/Alarm.js');
     const { default: OutageReport } = await import('../models/OutageReport.js');
     const { default: Ticket } = await import('../models/Ticket.js');
+    const { default: HuaweiMaeAlarm } = await import('../models/HuaweiMaeAlarm.js');
     
     // Get counts
     const alarmCount = await Alarm.countDocuments();
     const outageReportCount = await OutageReport.countDocuments();
     const ticketCount = await Ticket.countDocuments();
+    const maeAlarmCount = await HuaweiMaeAlarm.countDocuments();
     
     console.log('\n📊 Current data counts:');
     console.log(`- Alarms: ${alarmCount}`);
+    console.log(`- Huawei MAE Alarms: ${maeAlarmCount}`);
     console.log(`- Outage Reports: ${outageReportCount}`);
     console.log(`- Tickets: ${ticketCount}`);
     
-    if (alarmCount === 0 && outageReportCount === 0 && ticketCount === 0) {
+    if (alarmCount === 0 && maeAlarmCount === 0 && outageReportCount === 0 && ticketCount === 0) {
       console.log('\nℹ️ No data to clean up.');
       process.exit(0);
     }
@@ -49,14 +52,19 @@ async function cleanupAllData() {
     // Ask for confirmation
     console.log('\n⚠️ WARNING: This will delete ALL data from the following collections:');
     console.log('- Alarms');
+    console.log('- Huawei MAE Alarms');
     console.log('- Outage Reports');
     console.log('- Tickets');
-    
-    const answer = await question('\nAre you sure you want to continue? This action cannot be undone. (yes/no) ');
-    
-    if (answer.toLowerCase() !== 'yes') {
-      console.log('\n❌ Operation cancelled by user.');
-      process.exit(0);
+
+    const forceYes = process.argv.includes('--yes') || process.env.FORCE_YES === 'true';
+    if (!forceYes) {
+      const answer = await question('\nAre you sure you want to continue? This action cannot be undone. (yes/no) ');
+      if (answer.toLowerCase() !== 'yes') {
+        console.log('\n❌ Operation cancelled by user.');
+        process.exit(0);
+      }
+    } else {
+      console.log('\n⏩ Skipping confirmation due to --yes flag / FORCE_YES env var.');
     }
 
     // Delete all data
@@ -64,14 +72,16 @@ async function cleanupAllData() {
     
     const results = await Promise.all([
       Alarm.deleteMany({}),
+      HuaweiMaeAlarm.deleteMany({}),
       OutageReport.deleteMany({}),
       Ticket.deleteMany({})
     ]);
     
     console.log('\n✅ Cleanup completed successfully:');
     console.log(`- Deleted ${results[0].deletedCount} alarms`);
-    console.log(`- Deleted ${results[1].deletedCount} outage reports`);
-    console.log(`- Deleted ${results[2].deletedCount} tickets`);
+    console.log(`- Deleted ${results[1].deletedCount} Huawei MAE alarms`);
+    console.log(`- Deleted ${results[2].deletedCount} outage reports`);
+    console.log(`- Deleted ${results[3].deletedCount} tickets`);
     
   } catch (error) {
     console.error('\n❌ Error during cleanup:', error);

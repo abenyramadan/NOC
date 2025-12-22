@@ -1,0 +1,32 @@
+﻿Save Time:2025-12-16 15:40:04
+User Name:A.Abeng
+
+Resource Control Items
+
+Resource Name,ID,Used/Total Capacity,Alarm Threshold,Max. Capacity Exceeded On,Sending Alarms,Timed Prompting,End of Validity Period,End of Grace Period
+MMFD-201100 MBB Network Access Package-U(per cell),LWMDMBEUC,2603/9046	,90%,--	,No,No,2026-02-28	,2026-04-29	
+MMFD-201000 MBB Network O&M Base Package-L(per cell),LWMDMMNLC,1202/5518	,90%,--	,No,No,2026-02-28	,2026-04-29	
+MMFD-201105 MBB Network Unified NBI Package-L(per cell),LWMDMUNPL,1202/4538	,90%,--	,No,No,2026-02-28	,2026-04-29	
+MMFD-201100 MBB Network Access Package-G(per TRX),LWMDMBEGT,6994/25906	,90%,--	,No,No,2026-02-28	,2026-04-29	
+MMFD-201101 MBB Network Deployment Package-L(per cell),LWMDMBTLC,1202/3416	,90%,--	,No,No,2026-02-28	,2026-04-29	
+MAE Client amount,LWMDMMNCA,7/3720	,90%,--	,No,No,2026-02-28	,2026-04-29	
+MMFD-201105 MBB Network Unified NBI Package-U(per cell),LWMDMUNPU,2603/15342	,90%,--	,No,No,2026-02-28	,2026-04-29	
+MMFD-201101 MBB Network Deployment Package-G(per TRX,LWMDMBTGT,6994/25720	,90%,--	,No,No,2026-02-28	,2026-04-29	
+MMFD-201101 MBB Network Deployment Package-U(per cell),LWMDMBTUC,2603/8899	,90%,--	,No,No,2026-02-28	,2026-04-29	
+MMFD-201000 MBB Network O&M Base Package-G(per TRX),LWMDMMNGT,6994/68810	,90%,--	,No,No,2026-02-28	,2026-04-29	
+MMFD-201100 MBB Network Access Package-L(per cell),LWMDMBELC,1202/3896	,90%,--	,No,No,2026-02-28	,2026-04-29	
+MMFD-201000 MBB Network O&M Base Package-U(per cell),LWMDMMNUC,2603/19246	,90%,--	,No,No,2026-02-28	,2026-04-29	
+MMFD-201105 MBB Network Unified NBI Package-G(per TRX),LWMDMUNPG,6994/44886	,90%,--	,No,No,2026-02-28	,2026-04-29	
+
+"Total 13 Records"
+
+
+Function Control Items
+
+Function Name,ID,Supported,End of Validity Period,End of Grace Period
+MMFD-211000 Service Enabler(Medium),LWMESEADL,Yes,2026-02-28	,2026-04-29	
+MAE-CN Basic Platform Package(per system),LSE5MCBPP,Yes,2026-02-28	,2026-04-29	
+
+"Total 2 Records"
+
+

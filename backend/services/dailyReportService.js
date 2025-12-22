@@ -1,8 +1,8 @@
-import OutageReport from '../models/OutageReport.js';
-import { emailService } from './emailService.js';
-import { outageReportService } from './outageReportService.js';
-import EmailRecipientService from './emailRecipientService.js';
-import cron from 'node-cron';
+import OutageReport from "../models/OutageReport.js";
+import { getEmailService } from "./emailService.js";
+import { outageReportService } from "./outageReportService.js";
+import EmailRecipientService from "./emailRecipientService.js";
+import cron from "node-cron";
 
 class DailyReportService {
   constructor() {
@@ -15,23 +15,29 @@ class DailyReportService {
    */
   startScheduler() {
     if (this.isRunning) {
-      console.log('Daily report scheduler is already running');
+      console.log("Daily report scheduler is already running");
       return;
     }
 
     // Schedule to run every day at 23:59
-    this.cronJob = cron.schedule('59 23 * * *', async () => {
-      console.log('📅 Running scheduled daily report generation...');
-      await this.generateDailyReport();
-    }, {
-      scheduled: false
-    });
+    this.cronJob = cron.schedule(
+      "59 23 * * *",
+      async () => {
+        console.log("📅 Running scheduled daily report generation...");
+        await this.generateDailyReport();
+      },
+      {
+        scheduled: false,
+      }
+    );
 
     // Start scheduler
     this.cronJob.start();
     this.isRunning = true;
 
-    console.log("✅ Daily report scheduler started. Will run every day at 23:59.");
+    console.log(
+      "✅ Daily report scheduler started. Will run every day at 23:59."
+    );
   }
 
   /**
@@ -41,7 +47,7 @@ class DailyReportService {
     if (this.cronJob) {
       this.cronJob.stop();
       this.isRunning = false;
-      console.log('🛑 Daily report scheduler stopped');
+      console.log("🛑 Daily report scheduler stopped");
     }
   }
 
@@ -52,25 +58,29 @@ class DailyReportService {
     try {
       const reportDate = new Date();
       const reportData = await this.getDailyReportsFromAPI(reportDate);
-      const { html, text } = await this.generateDailyReportEmail(reportData, reportDate);
-      
+      const emailService = await getEmailService();
+      const { html, text } = await this.generateDailyReportEmail(
+        reportData,
+        reportDate
+      );
+
       // Send email to configured recipients
-      const recipients = process.env.DAILY_REPORT_EMAILS || '';
+      const recipients = process.env.DAILY_REPORT_EMAILS || "";
       if (recipients) {
         await emailService.sendEmail({
-          to: recipients.split(',').map(email => email.trim()),
+          to: recipients.split(",").map((email) => email.trim()),
           subject: `Daily Network Performance Report - ${reportDate.toLocaleDateString()}`,
           html,
-          text
+          text,
         });
-        console.log('📧 Daily report email sent successfully');
+        console.log("📧 Daily report email sent successfully");
       } else {
-        console.log('⚠️ No email recipients configured for daily reports');
+        console.log("⚠️ No email recipients configured for daily reports");
       }
 
       return { success: true };
     } catch (error) {
-      console.error('❌ Error generating daily report:', error);
+      console.error("❌ Error generating daily report:", error);
       return { success: false, error: error.message };
     }
   }
@@ -89,47 +99,54 @@ class DailyReportService {
 
     try {
       // Get all reports for this day, including unresolved carry-overs and carry-overs resolved today
-      const dailyReports = await OutageReport.find({
-        $or: [
-          // Reports that occurred on the selected date
-          { occurrenceTime: { $gte: startOfDay, $lte: endOfDay } },
-          // Reports that were resolved on the selected date (carry-overs resolved today)
-          {
-            resolutionTime: { $gte: startOfDay, $lte: endOfDay },
-            status: { $in: ['Resolved', 'Closed'] }
-          },
-          // Unresolved carry-over outages from previous days
-          {
-            occurrenceTime: { $lt: startOfDay },
-            status: { $in: ['Open', 'In Progress'] }
-          }
-        ]
-      }, 'siteCode siteNo region alarmType occurrenceTime resolutionTime status expectedRestorationTime mandatoryRestorationTime rootCause subrootCause supervisor username')
-      .sort({ occurrenceTime: -1 })
-      .lean();
+      const dailyReports = await OutageReport.find(
+        {
+          $or: [
+            // Reports that occurred on the selected date
+            { occurrenceTime: { $gte: startOfDay, $lte: endOfDay } },
+            // Reports that were resolved on the selected date (carry-overs resolved today)
+            {
+              resolutionTime: { $gte: startOfDay, $lte: endOfDay },
+              status: { $in: ["Resolved", "Closed"] },
+            },
+            // Unresolved carry-over outages from previous days
+            {
+              occurrenceTime: { $lt: startOfDay },
+              status: { $in: ["Open", "In Progress"] },
+            },
+          ],
+        },
+        "siteCode siteNo region alarmType occurrenceTime resolutionTime status expectedRestorationTime mandatoryRestorationTime rootCause subrootCause supervisor username"
+      )
+        .sort({ occurrenceTime: -1 })
+        .lean();
 
       // Categorize reports
-      const newOutages = dailyReports.filter(report => 
-        report.occurrenceTime >= startOfDay && report.occurrenceTime <= endOfDay
+      const newOutages = dailyReports.filter(
+        (report) =>
+          report.occurrenceTime >= startOfDay &&
+          report.occurrenceTime <= endOfDay
       );
-      
-      const carryOverOutages = dailyReports.filter(report => 
-        report.occurrenceTime < startOfDay && 
-        (report.status === 'Open' || report.status === 'In Progress')
+
+      const carryOverOutages = dailyReports.filter(
+        (report) =>
+          report.occurrenceTime < startOfDay &&
+          (report.status === "Open" || report.status === "In Progress")
       );
-      
-      const resolvedToday = dailyReports.filter(report => 
-        (report.status === 'Resolved' || report.status === 'Closed') &&
-        report.resolutionTime && 
-        report.resolutionTime >= startOfDay && 
-        report.resolutionTime <= endOfDay
+
+      const resolvedToday = dailyReports.filter(
+        (report) =>
+          (report.status === "Resolved" || report.status === "Closed") &&
+          report.resolutionTime &&
+          report.resolutionTime >= startOfDay &&
+          report.resolutionTime <= endOfDay
       );
 
       // Process reports by region
       const regionMap = new Map();
-      
-      dailyReports.forEach(report => {
-        const region = report.region || 'Unknown';
+
+      dailyReports.forEach((report) => {
+        const region = report.region || "Unknown";
         if (!regionMap.has(region)) {
           regionMap.set(region, {
             region,
@@ -141,7 +158,7 @@ class DailyReportService {
             outOfSLA: 0,
             criticalAlarms: 0,
             majorAlarms: 0,
-            minorAlarms: 0
+            minorAlarms: 0,
           });
         }
 
@@ -149,26 +166,31 @@ class DailyReportService {
         regionData.totalTickets++;
 
         // Update status counts
-        if (report.status === 'Open') regionData.openTickets++;
-        if (report.status === 'In Progress') regionData.inProgressTickets++;
-        if (report.status === 'Resolved' || report.status === 'Closed') regionData.resolvedTickets++;
+        if (report.status === "Open") regionData.openTickets++;
+        if (report.status === "In Progress") regionData.inProgressTickets++;
+        if (report.status === "Resolved" || report.status === "Closed")
+          regionData.resolvedTickets++;
 
         // Update alarm type counts
-        if (report.alarmType === 'CRITICAL') regionData.criticalAlarms++;
-        if (report.alarmType === 'MAJOR') regionData.majorAlarms++;
-        if (report.alarmType === 'MINOR') regionData.minorAlarms++;
+        if (report.alarmType === "CRITICAL") regionData.criticalAlarms++;
+        if (report.alarmType === "MAJOR") regionData.majorAlarms++;
+        if (report.alarmType === "MINOR") regionData.minorAlarms++;
 
         // Update SLA status for resolved reports
-        if ((report.status === 'Resolved' || report.status === 'Closed') && report.resolutionTime && 
-            report.resolutionTime >= startOfDay && report.resolutionTime <= endOfDay) {
+        if (
+          (report.status === "Resolved" || report.status === "Closed") &&
+          report.resolutionTime &&
+          report.resolutionTime >= startOfDay &&
+          report.resolutionTime <= endOfDay
+        ) {
           const slaStatus = outageReportService.calculateSlaStatus(
             report.occurrenceTime,
             report.resolutionTime,
             report.expectedResolutionHours
           );
-          if (slaStatus === 'within') {
+          if (slaStatus === "within") {
             regionData.withinSLA++;
-          } else if (slaStatus === 'out') {
+          } else if (slaStatus === "out") {
             regionData.outOfSLA++;
           }
         }
@@ -179,13 +201,13 @@ class DailyReportService {
 
       // Group by root cause
       const rootCauseMap = new Map();
-      dailyReports.forEach(report => {
-        const rootCause = report.rootCause || 'Not specified';
+      dailyReports.forEach((report) => {
+        const rootCause = report.rootCause || "Not specified";
         if (!rootCauseMap.has(rootCause)) {
           rootCauseMap.set(rootCause, {
             rootCause,
             count: 0,
-            alarms: []
+            alarms: [],
           });
         }
         rootCauseMap.get(rootCause).count++;
@@ -193,25 +215,42 @@ class DailyReportService {
       });
 
       // Convert map to array and sort by count (descending)
-      const alarmsByRootCause = Array.from(rootCauseMap.values())
-        .sort((a, b) => b.count - a.count);
+      const alarmsByRootCause = Array.from(rootCauseMap.values()).sort(
+        (a, b) => b.count - a.count
+      );
 
       // Calculate summary metrics
       const totalReports = dailyReports.length;
       const totalNewOutages = newOutages.length;
       const totalCarryOverOutages = carryOverOutages.length;
       const totalResolvedToday = resolvedToday.length;
-      const totalOpen = ticketsPerRegion.reduce((sum, item) => sum + (item.openTickets || 0), 0);
-      const totalInProgress = ticketsPerRegion.reduce((sum, item) => sum + (item.inProgressTickets || 0), 0);
-      const totalResolved = ticketsPerRegion.reduce((sum, item) => sum + (item.resolvedTickets || 0), 0);
-      const totalWithinSLA = ticketsPerRegion.reduce((sum, item) => sum + (item.withinSLA || 0), 0);
-      const totalOutOfSLA = ticketsPerRegion.reduce((sum, item) => sum + (item.outOfSLA || 0), 0);
+      const totalOpen = ticketsPerRegion.reduce(
+        (sum, item) => sum + (item.openTickets || 0),
+        0
+      );
+      const totalInProgress = ticketsPerRegion.reduce(
+        (sum, item) => sum + (item.inProgressTickets || 0),
+        0
+      );
+      const totalResolved = ticketsPerRegion.reduce(
+        (sum, item) => sum + (item.resolvedTickets || 0),
+        0
+      );
+      const totalWithinSLA = ticketsPerRegion.reduce(
+        (sum, item) => sum + (item.withinSLA || 0),
+        0
+      );
+      const totalOutOfSLA = ticketsPerRegion.reduce(
+        (sum, item) => sum + (item.outOfSLA || 0),
+        0
+      );
 
       // Calculate MTTR for resolved tickets
-      const resolvedReports = dailyReports.filter(r => 
-        (r.status === 'Resolved' || r.status === 'Closed') &&
-        r.resolutionTime &&
-        r.occurrenceTime
+      const resolvedReports = dailyReports.filter(
+        (r) =>
+          (r.status === "Resolved" || r.status === "Closed") &&
+          r.resolutionTime &&
+          r.occurrenceTime
       );
 
       let mttr = 0;
@@ -221,13 +260,16 @@ class DailyReportService {
           const occurrenceTime = new Date(report.occurrenceTime).getTime();
           return sum + (resolutionTime - occurrenceTime);
         }, 0);
-        mttr = Math.round((totalResolutionTime / resolvedReports.length) / (1000 * 60)); // in minutes
+        mttr = Math.round(
+          totalResolutionTime / resolvedReports.length / (1000 * 60)
+        ); // in minutes
       }
 
       // Calculate SLA percentage
-      const slaPercentage = totalResolved > 0 
-        ? Math.round((totalWithinSLA / totalResolved) * 100) 
-        : 0;
+      const slaPercentage =
+        totalResolved > 0
+          ? Math.round((totalWithinSLA / totalResolved) * 100)
+          : 0;
 
       return {
         reportDate: startOfDay,
@@ -241,17 +283,17 @@ class DailyReportService {
           totalWithinSLA,
           totalOutOfSLA,
           mttr,
-          slaPercentage
+          slaPercentage,
         },
         alarmsByRootCause,
         ticketsPerRegion,
         allReports: dailyReports,
         newOutages,
         carryOverOutages,
-        resolvedToday
+        resolvedToday,
       };
     } catch (error) {
-      console.error('Error generating daily report data:', error);
+      console.error("Error generating daily report data:", error);
       throw error;
     }
   }
@@ -260,43 +302,83 @@ class DailyReportService {
    * Generate HTML and text content for daily report email
    */
   formatDate(date) {
-    if (!date) return 'N/A';
+    if (!date) return "N/A";
     const d = new Date(date);
-    const day = d.getDate().toString().padStart(2, '0');
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const day = d.getDate().toString().padStart(2, "0");
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     const month = monthNames[d.getMonth()];
     const year = d.getFullYear();
     return `${day}/${month}/${year}`;
   }
 
   formatDateTime(date) {
-    if (!date) return 'N/A';
+    if (!date) return "N/A";
     const d = new Date(date);
-    const day = d.getDate().toString().padStart(2, '0');
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const day = d.getDate().toString().padStart(2, "0");
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     const month = monthNames[d.getMonth()];
     const year = d.getFullYear();
-    const hours = d.getHours().toString().padStart(2, '0');
-    const minutes = d.getMinutes().toString().padStart(2, '0');
-    const ampm = d.getHours() >= 12 ? 'PM' : 'AM';
-    
+    const hours = d.getHours().toString().padStart(2, "0");
+    const minutes = d.getMinutes().toString().padStart(2, "0");
+    const ampm = d.getHours() >= 12 ? "PM" : "AM";
+
     return `${day}/${month}/${year} ${hours}:${minutes} ${ampm}`;
   }
 
   async generateDailyReportEmail(dailyReportsData, reportDate) {
-    const { ticketsPerRegion = [], alarmsByRootCause = [], allReports = [], newOutages = [], carryOverOutages = [], resolvedToday = [], summary = {} } = dailyReportsData;
-    
+    const {
+      ticketsPerRegion = [],
+      alarmsByRootCause = [],
+      allReports = [],
+      newOutages = [],
+      carryOverOutages = [],
+      resolvedToday = [],
+      summary = {},
+    } = dailyReportsData;
+
     // Format the date
     const dateStr = this.formatDate(reportDate);
 
     // Compute ongoing outages and exclude carry-overs for the "Ongoing Outages" table
-    const ongoingOutages = (allReports || []).filter(r => r && (r.status === 'Open' || r.status === 'In Progress'));
-    const todayOngoingOutages = ongoingOutages.filter(o => !carryOverOutages.some(co => String(co._id) === String(o._id)));
+    const ongoingOutages = (allReports || []).filter(
+      (r) => r && (r.status === "Open" || r.status === "In Progress")
+    );
+    const todayOngoingOutages = ongoingOutages.filter(
+      (o) => !carryOverOutages.some((co) => String(co._id) === String(o._id))
+    );
 
     // Calculate SLA percentage
-    const slaPercentage = summary.totalResolved > 0 
-      ? Math.round((summary.totalWithinSLA / summary.totalResolved) * 100) || 0 
-      : 0;
+    const slaPercentage =
+      summary.totalResolved > 0
+        ? Math.round((summary.totalWithinSLA / summary.totalResolved) * 100) ||
+          0
+        : 0;
 
     // Create HTML email
     const html = `
@@ -388,7 +470,9 @@ class DailyReportService {
               <tr>
                 <td align="left" valign="top" style="padding: 24px;">
                   <h1 style="margin: 0 0 8px 0; padding: 0; color: #1a365d; font-size: 24px; font-weight: bold;">Daily Network Performance Report</h1>
-                  <p style="margin: 0; color: #4a5568; font-size: 14px;">${dateStr} • 00:00 - 23:59 • ${summary.totalCarryOverOutages || 0} Carry-Over • ${summary.totalResolvedToday || 0} Resolved</p>
+                  <p style="margin: 0; color: #4a5568; font-size: 14px;">${dateStr} • 00:00 - 23:59 • ${
+      summary.totalCarryOverOutages || 0
+    } Carry-Over • ${summary.totalResolvedToday || 0} Resolved</p>
                 </td>
               </tr>
 
@@ -400,30 +484,46 @@ class DailyReportService {
                       <!-- Total Tickets Card -->
                       <td align="left" valign="top" width="150" style="width: 150px; background-color: #1d4ed8; padding: 14px 16px; color: white;">
                         <div style="font-size: 12px; margin-bottom: 6px; color: #dbeafe;">Total Tickets</div>
-                        <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${summary.totalReports}</div>
+                        <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${
+                          summary.totalReports
+                        }</div>
                       </td>
                       <!-- In Progress Card -->
                       <td align="left" valign="top" width="150" style="width: 150px; background-color: #0284c7; padding: 14px 16px; color: white;">
                         <div style="font-size: 12px; margin-bottom: 6px; color: #bae6fd;">In Progress</div>
-                        <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${summary.totalInProgress || 0}</div>
+                        <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${
+                          summary.totalInProgress || 0
+                        }</div>
                       </td>
                       <!-- Carry-Overs Card -->
                       <td align="left" valign="top" width="150" style="width: 150px; background-color: #f97316; padding: 14px 16px; color: white;">
                         <div style="font-size: 12px; margin-bottom: 6px; color: #fed7aa;">Carry-Overs</div>
-                        <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${summary.totalCarryOverOutages || 0}</div>
+                        <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${
+                          summary.totalCarryOverOutages || 0
+                        }</div>
                       </td>
                       <!-- Resolved Today Card -->
                       <td align="left" valign="top" width="150" style="width: 150px; background-color: #16a34a; padding: 14px 16px; color: white;">
                         <div style="font-size: 12px; margin-bottom: 6px; color: #a7f3d0;">Resolved Today</div>
-                        <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${summary.totalResolvedToday || 0}</div>
+                        <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${
+                          summary.totalResolvedToday || 0
+                        }</div>
                       </td>
                       <!-- MTTR Card -->
                       <td align="left" valign="top" width="150" style="width: 150px; background-color: #2563eb; padding: 14px 16px; color: white;">
                         <div style="font-size: 12px; margin-bottom: 6px; color: #bfdbfe;">MTTR (min)</div>
-                        <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${summary.mttr || 'N/A'}</div>
+                        <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${
+                          summary.mttr || "N/A"
+                        }</div>
                       </td>
                       <!-- SLA Compliance Card -->
-                      <td align="left" valign="top" width="150" style="width: 150px; background-color: ${slaPercentage >= 90 ? '#16a34a' : slaPercentage >= 75 ? '#d97706' : '#dc2626'}; padding: 14px 16px; color: white;">
+                      <td align="left" valign="top" width="150" style="width: 150px; background-color: ${
+                        slaPercentage >= 90
+                          ? "#16a34a"
+                          : slaPercentage >= 75
+                          ? "#d97706"
+                          : "#dc2626"
+                      }; padding: 14px 16px; color: white;">
                         <div style="font-size: 12px; margin-bottom: 6px; color: #a7f3d0;">SLA Compliance</div>
                         <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${slaPercentage}%</div>
                       </td>
@@ -433,13 +533,17 @@ class DailyReportService {
               </tr>
 
               <!-- Carry-Over Outages -->
-              ${carryOverOutages.length > 0 ? `
+              ${
+                carryOverOutages.length > 0
+                  ? `
               <tr>
                 <td align="left" valign="top" style="padding: 0 24px 24px 24px;">
                   <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #ffffff; border: 1px solid #e5e7eb;">
                     <tr>
                       <td align="left" valign="top" style="padding: 16px; background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
-                        <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #f97316;">Carry-Over Outages (${carryOverOutages.length})</h2>
+                        <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #f97316;">Carry-Over Outages (${
+                          carryOverOutages.length
+                        })</h2>
                       </td>
                     </tr>
                     <tr>
@@ -458,26 +562,44 @@ class DailyReportService {
                           <tbody>
                             ${carryOverOutages
                               .slice(0, 15)
-                              .map(report => {
-                                const startTime = new Date(report.occurrenceTime);
+                              .map((report) => {
+                                const startTime = new Date(
+                                  report.occurrenceTime
+                                );
                                 const endTime = new Date();
                                 const durationMs = endTime - startTime;
-                                const daysOpen = Math.floor(durationMs / (1000 * 60 * 60 * 24));
+                                const daysOpen = Math.floor(
+                                  durationMs / (1000 * 60 * 60 * 24)
+                                );
 
-                                const statusBadge = report.status === 'In Progress'
-                                  ? '<span style="background-color: #fef3c7; color: #92400e; padding: 4px 8px; font-size: 12px; font-weight: bold;">In Progress</span>'
-                                  : '<span style="background-color: #dbeafe; color: #1e40af; padding: 4px 8px; font-size: 12px; font-weight: bold;">' + report.status + '</span>';
+                                const statusBadge =
+                                  report.status === "In Progress"
+                                    ? '<span style="background-color: #fef3c7; color: #92400e; padding: 4px 8px; font-size: 12px; font-weight: bold;">In Progress</span>'
+                                    : '<span style="background-color: #dbeafe; color: #1e40af; padding: 4px 8px; font-size: 12px; font-weight: bold;">' +
+                                      report.status +
+                                      "</span>";
 
                                 return `
                                 <tr>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteCode || report.siteNo || 'N/A'}</td>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.alarmType || 'N/A'}</td>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${this.formatDateTime(report.occurrenceTime)}</td>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${daysOpen} day${daysOpen !== 1 ? 's' : ''}</td>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${report.region || 'N/A'}</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                    report.siteCode || report.siteNo || "N/A"
+                                  }</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                    report.alarmType || "N/A"
+                                  }</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${this.formatDateTime(
+                                    report.occurrenceTime
+                                  )}</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${daysOpen} day${
+                                  daysOpen !== 1 ? "s" : ""
+                                }</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${
+                                    report.region || "N/A"
+                                  }</td>
                                   <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px;">${statusBadge}</td>
                                 </tr>`;
-                              }).join('')}
+                              })
+                              .join("")}
                           </tbody>
                         </table>
                       </td>
@@ -485,7 +607,9 @@ class DailyReportService {
                   </table>
                 </td>
               </tr>
-              ` : ''}
+              `
+                  : ""
+              }
 
               <!-- Ongoing Outages -->
               <tr>
@@ -493,12 +617,16 @@ class DailyReportService {
                   <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #ffffff; border: 1px solid #e5e7eb;">
                     <tr>
                       <td align="left" valign="top" style="padding: 16px; background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
-                        <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #111827;">Ongoing Outages (${todayOngoingOutages.length})</h2>
+                        <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #111827;">Ongoing Outages (${
+                          todayOngoingOutages.length
+                        })</h2>
                       </td>
                     </tr>
                     <tr>
                       <td align="left" valign="top">
-                        ${todayOngoingOutages.length > 0 ? `
+                        ${
+                          todayOngoingOutages.length > 0
+                            ? `
                         <table border="0" cellpadding="0" cellspacing="0" width="100%">
                           <thead>
                             <tr style="background-color: #0066ff;">
@@ -513,35 +641,58 @@ class DailyReportService {
                           <tbody>
                             ${todayOngoingOutages
                               .slice(0, 10)
-                              .map(report => {
-                                const startTime = new Date(report.occurrenceTime);
+                              .map((report) => {
+                                const startTime = new Date(
+                                  report.occurrenceTime
+                                );
                                 const endTime = new Date();
                                 const durationMs = endTime - startTime;
-                                const durationHours = Math.floor(durationMs / (1000 * 60 * 60));
-                                const durationMinutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
-                                const durationStr = durationHours > 0
-                                  ? `${durationHours}h ${durationMinutes}m`
-                                  : `${durationMinutes}m`;
+                                const durationHours = Math.floor(
+                                  durationMs / (1000 * 60 * 60)
+                                );
+                                const durationMinutes = Math.floor(
+                                  (durationMs % (1000 * 60 * 60)) / (1000 * 60)
+                                );
+                                const durationStr =
+                                  durationHours > 0
+                                    ? `${durationHours}h ${durationMinutes}m`
+                                    : `${durationMinutes}m`;
 
-                                const statusBadge = report.status === 'In Progress'
-                                  ? '<span style="background-color: #fef3c7; color: #92400e; padding: 4px 8px; font-size: 12px; font-weight: bold;">In Progress</span>'
-                                  : '<span style="background-color: #dbeafe; color: #1e40af; padding: 4px 8px; font-size: 12px; font-weight: bold;">' + report.status + '</span>';
+                                const statusBadge =
+                                  report.status === "In Progress"
+                                    ? '<span style="background-color: #fef3c7; color: #92400e; padding: 4px 8px; font-size: 12px; font-weight: bold;">In Progress</span>'
+                                    : '<span style="background-color: #dbeafe; color: #1e40af; padding: 4px 8px; font-size: 12px; font-weight: bold;">' +
+                                      report.status +
+                                      "</span>";
 
                                 return `
                                 <tr>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteCode || report.siteNo || 'N/A'}</td>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.alarmType || 'N/A'}</td>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${this.formatDateTime(report.occurrenceTime)}</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                    report.siteCode || report.siteNo || "N/A"
+                                  }</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                    report.alarmType || "N/A"
+                                  }</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${this.formatDateTime(
+                                    report.occurrenceTime
+                                  )}</td>
                                   <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${durationStr}</td>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${report.region || 'N/A'}</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${
+                                    report.region || "N/A"
+                                  }</td>
                                   <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px;">${statusBadge}</td>
                                 </tr>`;
-                              }).join('')}
-                            ${todayOngoingOutages.length === 0 ?
-                              '<tr><td colspan="6" align="center" valign="top" style="padding: 40px 20px; color: #6b7280; font-size: 14px;">No ongoing outages</td></tr>' : ''}
+                              })
+                              .join("")}
+                            ${
+                              todayOngoingOutages.length === 0
+                                ? '<tr><td colspan="6" align="center" valign="top" style="padding: 40px 20px; color: #6b7280; font-size: 14px;">No ongoing outages</td></tr>'
+                                : ""
+                            }
                           </tbody>
                         </table>
-                        ` : `
+                        `
+                            : `
                         <table border="0" cellpadding="0" cellspacing="0" width="100%">
                           <tr>
                             <td align="center" valign="top" style="padding: 40px 20px; color: #6b7280; font-size: 14px;">
@@ -549,7 +700,8 @@ class DailyReportService {
                             </td>
                           </tr>
                         </table>
-                        `}
+                        `
+                        }
                       </td>
                     </tr>
                   </table>
@@ -562,12 +714,16 @@ class DailyReportService {
                   <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #ffffff; border: 1px solid #e5e7eb;">
                     <tr>
                       <td align="left" valign="top" style="padding: 16px; background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
-                        <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #16a34a;">Resolved Today (${resolvedToday.length})</h2>
+                        <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #16a34a;">Resolved Today (${
+                          resolvedToday.length
+                        })</h2>
                       </td>
                     </tr>
                     <tr>
                       <td align="left" valign="top">
-                        ${resolvedToday.length > 0 ? `
+                        ${
+                          resolvedToday.length > 0
+                            ? `
                         <table border="0" cellpadding="0" cellspacing="0" width="100%">
                           <thead>
                             <tr style="background-color: #0066ff;">
@@ -582,17 +738,28 @@ class DailyReportService {
                           </thead>
                           <tbody>
                             ${resolvedToday
-                              .sort((a, b) => new Date(b.resolutionTime) - new Date(a.resolutionTime))
+                              .sort(
+                                (a, b) =>
+                                  new Date(b.resolutionTime) -
+                                  new Date(a.resolutionTime)
+                              )
                               .slice(0, 20)
-                              .map(report => {
-                                const startTime = new Date(report.occurrenceTime);
+                              .map((report) => {
+                                const startTime = new Date(
+                                  report.occurrenceTime
+                                );
                                 const endTime = new Date(report.resolutionTime);
                                 const durationMs = endTime - startTime;
-                                const durationHours = Math.floor(durationMs / (1000 * 60 * 60));
-                                const durationMinutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
-                                const durationStr = durationHours > 0
-                                  ? `${durationHours}h ${durationMinutes}m`
-                                  : `${durationMinutes}m`;
+                                const durationHours = Math.floor(
+                                  durationMs / (1000 * 60 * 60)
+                                );
+                                const durationMinutes = Math.floor(
+                                  (durationMs % (1000 * 60 * 60)) / (1000 * 60)
+                                );
+                                const durationStr =
+                                  durationHours > 0
+                                    ? `${durationHours}h ${durationMinutes}m`
+                                    : `${durationMinutes}m`;
 
                                 // Calculate SLA status
                                 const slaHours = 2; // 2-hour SLA
@@ -603,20 +770,35 @@ class DailyReportService {
 
                                 return `
                                 <tr>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteCode || report.siteNo || 'N/A'}</td>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.alarmType || 'N/A'}</td>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${this.formatDateTime(report.occurrenceTime)}</td>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${this.formatDateTime(report.resolutionTime)}</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                    report.siteCode || report.siteNo || "N/A"
+                                  }</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                    report.alarmType || "N/A"
+                                  }</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${this.formatDateTime(
+                                    report.occurrenceTime
+                                  )}</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${this.formatDateTime(
+                                    report.resolutionTime
+                                  )}</td>
                                   <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${durationStr}</td>
-                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${report.region || 'N/A'}</td>
+                                  <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${
+                                    report.region || "N/A"
+                                  }</td>
                                   <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px;">${slaStatus}</td>
                                 </tr>`;
-                              }).join('')}
-                            ${resolvedToday.length === 0 ?
-                              '<tr><td colspan="7" align="center" valign="top" style="padding: 40px 20px; color: #6b7280; font-size: 14px;">No resolved outages today</td></tr>' : ''}
+                              })
+                              .join("")}
+                            ${
+                              resolvedToday.length === 0
+                                ? '<tr><td colspan="7" align="center" valign="top" style="padding: 40px 20px; color: #6b7280; font-size: 14px;">No resolved outages today</td></tr>'
+                                : ""
+                            }
                           </tbody>
                         </table>
-                        ` : `
+                        `
+                            : `
                         <table border="0" cellpadding="0" cellspacing="0" width="100%">
                           <tr>
                             <td align="center" valign="top" style="padding: 40px 20px; color: #6b7280; font-size: 14px;">
@@ -624,7 +806,8 @@ class DailyReportService {
                             </td>
                           </tr>
                         </table>
-                        `}
+                        `
+                        }
                       </td>
                     </tr>
                   </table>
@@ -655,22 +838,41 @@ class DailyReportService {
                             </tr>
                           </thead>
                           <tbody>
-                            ${ticketsPerRegion.map(region => {
-                            const regionSlaPercentage = region.resolvedTickets > 0
-                              ? Math.round((region.withinSLA / region.resolvedTickets) * 100)
-                              : 0;
+                            ${ticketsPerRegion
+                              .map((region) => {
+                                const regionSlaPercentage =
+                                  region.resolvedTickets > 0
+                                    ? Math.round(
+                                        (region.withinSLA /
+                                          region.resolvedTickets) *
+                                          100
+                                      )
+                                    : 0;
 
-                            return `
+                                return `
                             <tr>
-                              <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937; font-weight: bold;">${region.region}</td>
-                              <td align="center" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937; font-weight: bold;">${region.totalTickets}</td>
-                              <td align="center" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${region.inProgressTickets}</td>
-                              <td align="center" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${region.resolvedTickets}</td>
-                              <td align="center" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #16a34a; font-weight: bold;">${region.withinSLA || 0}</td>
-                              <td align="center" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #dc2626; font-weight: bold;">${region.outOfSLA || 0}</td>
+                              <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937; font-weight: bold;">${
+                                region.region
+                              }</td>
+                              <td align="center" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937; font-weight: bold;">${
+                                region.totalTickets
+                              }</td>
+                              <td align="center" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                region.inProgressTickets
+                              }</td>
+                              <td align="center" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                region.resolvedTickets
+                              }</td>
+                              <td align="center" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #16a34a; font-weight: bold;">${
+                                region.withinSLA || 0
+                              }</td>
+                              <td align="center" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #dc2626; font-weight: bold;">${
+                                region.outOfSLA || 0
+                              }</td>
                               <td align="center" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${regionSlaPercentage}%</td>
                             </tr>`;
-                          }).join('')}
+                              })
+                              .join("")}
                           </tbody>
                         </table>
                       </td>
@@ -699,21 +901,36 @@ class DailyReportService {
                             </tr>
                           </thead>
                           <tbody>
-                            ${alarmsByRootCause.slice(0, 8).map(cause => {
-                              const percentage = summary.totalReports > 0
-                                ? Math.round((cause.count / summary.totalReports) * 100)
-                                : 0;
-                              return `
+                            ${alarmsByRootCause
+                              .slice(0, 8)
+                              .map((cause) => {
+                                const percentage =
+                                  summary.totalReports > 0
+                                    ? Math.round(
+                                        (cause.count / summary.totalReports) *
+                                          100
+                                      )
+                                    : 0;
+                                return `
                               <tr>
-                                <td align="left" valign="top" style="padding: 4px 8px; font-size: 11px; color: #374151; border-bottom: 1px solid #e5e7eb;">${cause.rootCause || 'Not specified'}</td>
-                                <td align="center" valign="top" style="padding: 4px 8px; font-size: 11px; color: #374151; font-weight: 500; border-bottom: 1px solid #e5e7eb;">${cause.count}</td>
+                                <td align="left" valign="top" style="padding: 4px 8px; font-size: 11px; color: #374151; border-bottom: 1px solid #e5e7eb;">${
+                                  cause.rootCause || "Not specified"
+                                }</td>
+                                <td align="center" valign="top" style="padding: 4px 8px; font-size: 11px; color: #374151; font-weight: 500; border-bottom: 1px solid #e5e7eb;">${
+                                  cause.count
+                                }</td>
                                 <td align="center" valign="top" style="padding: 4px 8px; font-size: 11px; color: #374151; border-bottom: 1px solid #e5e7eb;">${percentage}%</td>
                               </tr>`;
-                            }).join('')}
-                            ${alarmsByRootCause.length === 0 ? `
+                              })
+                              .join("")}
+                            ${
+                              alarmsByRootCause.length === 0
+                                ? `
                               <tr>
                                 <td colspan="3" align="center" valign="top" style="padding: 16px; color: #6b7280; font-size: 11px;">No root cause data available</td>
-                              </tr>` : ''}
+                              </tr>`
+                                : ""
+                            }
                           </tbody>
                         </table>
                       </td>
@@ -740,48 +957,77 @@ class DailyReportService {
 
     // Create plain text version
     const text = `Daily Network Performance Report - ${dateStr}
-${'='.repeat(50)}
+${"=".repeat(50)}
 
 Summary:
 - Total Tickets: ${summary.totalReports}
 - Carry-Overs: ${summary.totalCarryOverOutages || 0}
 - Resolved Today: ${summary.totalResolvedToday || 0}
 - In Progress: ${summary.totalInProgress}
-- Resolution Rate: ${summary.totalReports > 0 ? Math.round((summary.totalResolved / summary.totalReports) * 100) : 0}%
-- MTTR: ${summary.mttr || 'N/A'} minutes
+- Resolution Rate: ${
+      summary.totalReports > 0
+        ? Math.round((summary.totalResolved / summary.totalReports) * 100)
+        : 0
+    }%
+- MTTR: ${summary.mttr || "N/A"} minutes
 - SLA Compliance: ${slaPercentage}%
 
 Tickets by Region:
-${ticketsPerRegion.map(region => {
-  const regionSlaPercentage = region.resolvedTickets > 0 
-    ? Math.round((region.withinSLA / region.resolvedTickets) * 100) 
-    : 0;
-  return `${region.region}: ${region.totalTickets} total, ${region.inProgressTickets} in progress, ${region.resolvedTickets} resolved (${regionSlaPercentage}% SLA)`;
-}).join('\n')}
+${ticketsPerRegion
+  .map((region) => {
+    const regionSlaPercentage =
+      region.resolvedTickets > 0
+        ? Math.round((region.withinSLA / region.resolvedTickets) * 100)
+        : 0;
+    return `${region.region}: ${region.totalTickets} total, ${region.inProgressTickets} in progress, ${region.resolvedTickets} resolved (${regionSlaPercentage}% SLA)`;
+  })
+  .join("\n")}
 
 Carry-Over Outages:
-${carryOverOutages.slice(0, 10).map(report => {
-  const startTime = new Date(report.occurrenceTime);
-  const daysOpen = Math.floor((new Date() - startTime) / (1000 * 60 * 60 * 24));
-  return `${report.siteCode || report.siteNo || 'N/A'} - ${report.alarmType || 'N/A'} - ${this.formatDate(report.occurrenceTime)} (${daysOpen} days open) - ${report.status}`;
-}).join('\n')}
+${carryOverOutages
+  .slice(0, 10)
+  .map((report) => {
+    const startTime = new Date(report.occurrenceTime);
+    const daysOpen = Math.floor(
+      (new Date() - startTime) / (1000 * 60 * 60 * 24)
+    );
+    return `${report.siteCode || report.siteNo || "N/A"} - ${
+      report.alarmType || "N/A"
+    } - ${this.formatDate(report.occurrenceTime)} (${daysOpen} days open) - ${
+      report.status
+    }`;
+  })
+  .join("\n")}
 
 Resolved Today:
-${resolvedToday.slice(0, 10).map(report => {
-  const startTime = new Date(report.occurrenceTime);
-  const endTime = new Date(report.resolutionTime);
-  const durationMs = endTime - startTime;
-  const durationHours = Math.floor(durationMs / (1000 * 60 * 60));
-  const durationMinutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
-  const durationStr = durationHours > 0 ? `${durationHours}h ${durationMinutes}m` : `${durationMinutes}m`;
-  return `${report.siteCode || report.siteNo || 'N/A'} - ${report.alarmType || 'N/A'} - ${this.formatDateTime(report.resolutionTime)} (${durationStr})`;
-}).join('\n')}
+${resolvedToday
+  .slice(0, 10)
+  .map((report) => {
+    const startTime = new Date(report.occurrenceTime);
+    const endTime = new Date(report.resolutionTime);
+    const durationMs = endTime - startTime;
+    const durationHours = Math.floor(durationMs / (1000 * 60 * 60));
+    const durationMinutes = Math.floor(
+      (durationMs % (1000 * 60 * 60)) / (1000 * 60)
+    );
+    const durationStr =
+      durationHours > 0
+        ? `${durationHours}h ${durationMinutes}m`
+        : `${durationMinutes}m`;
+    return `${report.siteCode || report.siteNo || "N/A"} - ${
+      report.alarmType || "N/A"
+    } - ${this.formatDateTime(report.resolutionTime)} (${durationStr})`;
+  })
+  .join("\n")}
 
 Alarms by Root Cause (Top 5):
-${alarmsByRootCause.slice(0, 5).map(cause => {
-  const percentage = Math.round((cause.count / summary.totalReports) * 100);
-  return `${cause.rootCause}: ${cause.count} (${percentage}%)`;
-}).join('\n')}
+${alarmsByRootCause
+  .slice(0, 5)
+  .map((cause) => {
+    const percentage = Math.round((cause.count / summary.totalReports) * 100);
+    return `${cause.rootCause}: ${cause.count} (${percentage}%)`;
+  })
+  .join("\n")}
 
 This is an automated report. Please do not reply to this email.
 © ${new Date().getFullYear()} Network Operations Center. All rights reserved.`;

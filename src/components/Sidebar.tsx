@@ -124,7 +124,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
               {user?.name?.charAt(0) || 'U'}
             </div>
             <div className="ml-3">
-              <p className="text-sm font-medium text-sidebar-foreground">{user?.name || 'User'}</p>
+              <p className="text-sm font-medium text-sidebar-foreground">{user?.username || 'User'}</p>
               <p className="text-xs text-muted-foreground">{user?.role || 'Guest'}</p>
             </div>
           </div>

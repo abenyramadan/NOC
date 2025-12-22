@@ -2,6 +2,7 @@ import { NetEcoIntegration } from './NetEcoIntegration.js';
 import { IMasterNCEIntegration } from './IMasterNCEIntegration.js';
 import { IMasterMAEIntegration } from './IMasterMAEIntegration.js';
 import { SNMPIntegration } from './SNMPIntegration.js';
+import { IMasterMAEStreamIntegration } from './IMasterMAEStreamIntegration.js';
 
 /**
  * Integration Manager - handles all third-party monitoring system integrations
@@ -63,20 +64,35 @@ export class IntegrationManager {
 
     // iMaster MAE Configuration
     if (process.env.IMASTER_MAE_ENABLED !== 'false') {
-      const maeConfig = {
-        name: 'iMasterMAE',
-        baseUrl: process.env.IMASTER_MAE_BASE_URL,
-        apiKey: process.env.IMASTER_MAE_API_KEY,
+      const maeStreamConfig = {
+        name: 'iMasterMAEStream',
+        host: process.env.IMASTER_MAE_HOST,
+        port: parseInt(process.env.IMASTER_MAE_PORT, 10) || 8765,
+        protocol: process.env.IMASTER_MAE_PROTOCOL || 'TCP',
         username: process.env.IMASTER_MAE_USERNAME,
         password: process.env.IMASTER_MAE_PASSWORD,
+        tlsEnabled: process.env.IMASTER_MAE_TLS_ENABLED === 'true',
         enabled: process.env.IMASTER_MAE_ENABLED !== 'false',
-        alarmEndpoint: process.env.IMASTER_MAE_ALARM_ENDPOINT,
-        deviceEndpoint: process.env.IMASTER_MAE_DEVICE_ENDPOINT,
-        rejectUnauthorized: process.env.IMASTER_MAE_REJECT_UNAUTHORIZED !== 'false'
+        reconnectDelayMs: 5000,
+        initPayload: process.env.IMASTER_MAE_INIT_PAYLOAD,
+        heartbeatMessage: process.env.IMASTER_MAE_HEARTBEAT_MESSAGE,
+        heartbeatIntervalMs: process.env.IMASTER_MAE_HEARTBEAT_INTERVAL_MS
+          ? parseInt(process.env.IMASTER_MAE_HEARTBEAT_INTERVAL_MS, 10)
+          : 0,
       };
 
-      if (maeConfig.baseUrl) {
-        this.registerIntegration('iMasterMAE', new IMasterMAEIntegration(maeConfig));
+      if (maeStreamConfig.host && maeStreamConfig.port) {
+        this.registerIntegration(
+          'iMasterMAEStream',
+          new IMasterMAEStreamIntegration(maeStreamConfig)
+        );
+
+        const maeStreamIntegration = this.integrations.get('iMasterMAEStream');
+        if (maeStreamIntegration && maeStreamIntegration.enabled) {
+          maeStreamIntegration.start();
+        }
+      } else {
+        console.log('⏭️ iMasterMAEStream not started: host or port not configured');
       }
     }
 

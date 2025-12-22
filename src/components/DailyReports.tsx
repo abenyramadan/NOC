@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { outageReportService, DailyReportsResponse, OutageReport } from '../services/outageReportService';
+import { siteRegionService } from '../services/siteRegionService';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { AlertCircle, CheckCircle, Download, RefreshCw } from 'lucide-react';
@@ -145,18 +146,81 @@ const DailyReports: React.FC = () => {
         const rangeFetch = await outageReportService.getOutageReports({
           startDate: startOfDay.toISOString(),
           endDate: endOfDay.toISOString(),
-          sortBy: 'occurrenceTime',
-          sortOrder: 'asc',
-          limit: 2000,
+          page: 1,
+          limit: 1000
         });
 
-        const allOutages: OutageReport[] = rangeFetch.reports.map((r: any) => ({
-          ...r,
-          occurrenceTime: new Date(r.occurrenceTime),
-          resolutionTime: r.resolutionTime ? new Date(r.resolutionTime) : undefined,
-          expectedRestorationTime: r.expectedRestorationTime ? new Date(r.expectedRestorationTime) : undefined,
-          mandatoryRestorationTime: r.mandatoryRestorationTime ? new Date(r.mandatoryRestorationTime) : undefined,
+        // Include resolved MAE alarms from the central Alarm collection
+        const resolvedUrl = `${import.meta.env.VITE_API_URL}/api/alarms?status=resolved&startDate=${startOfDay.toISOString()}&endDate=${endOfDay.toISOString()}&limit=1000`;
+        console.log('🛰️ Daily: Fetching resolved alarms', { resolvedUrl, startOfDay, endOfDay });
+        const resolvedAlarmsResponse = await fetch(resolvedUrl);
+        let resolvedAlarms: any[] = [];
+        if (resolvedAlarmsResponse.ok) {
+          const alarmsData = await resolvedAlarmsResponse.json();
+          const beforeFilter = alarmsData.alarms?.length || 0;
+          resolvedAlarms = (alarmsData.alarms || []).filter((a: any) => a.resolvedAt && new Date(a.resolvedAt) >= startOfDay && new Date(a.resolvedAt) < endOfDay);
+          
+          // Pre-fetch site regions for all unique site IDs
+          const siteIds = [...new Set(resolvedAlarms.map((a: any) => a.siteId))];
+          await siteRegionService.fetchSiteRegionMap();
+          
+          console.log('✅ Daily: Resolved alarms fetch', {
+            httpStatus: resolvedAlarmsResponse.status,
+            totalFromApi: beforeFilter,
+            filteredForDay: resolvedAlarms.length,
+            uniqueSites: siteIds.length,
+            sample: resolvedAlarms.slice(0, 3).map((a) => ({
+              id: a._id,
+              siteId: a.siteId,
+              resolvedAt: a.resolvedAt,
+              description: a.description
+            }))
+          });
+        } else {
+          console.warn('⚠️ Daily: Failed to fetch resolved alarms', {
+            status: resolvedAlarmsResponse.status,
+            statusText: resolvedAlarmsResponse.statusText
+          });
+        }
+
+        // Process resolved alarms with region lookup
+        const processedAlarms = await Promise.all(resolvedAlarms.map(async (a: any) => {
+          const region = await siteRegionService.getSiteRegion(a.siteId);
+          return {
+            id: a._id,
+            siteNo: a.siteId,
+            siteCode: a.siteName,
+            region: region || 'Unknown' as any,
+            alarmType: a.alarmType?.replace('MAE_', '') || 'INFO',
+            occurrenceTime: a.timestamp,
+            supervisor: 'N/A',
+            rootCause: 'Others' as any,
+            subrootCause: '',
+            username: 'MAE Stream',
+            resolutionTime: a.resolvedAt,
+            expectedRestorationTime: undefined,
+            mandatoryRestorationTime: a.resolvedAt || new Date(),
+            status: 'Resolved' as const,
+            createdAt: a.timestamp,
+            updatedAt: a.resolvedAt || a.timestamp,
+            reportHour: a.timestamp,
+            isEmailSent: false,
+            emailSentAt: undefined,
+            slaStatus: 'within' as const,
+            expectedResolutionHours: undefined,
+            // Include MAE-specific fields for richer display
+            alarmName: a.alarmName,
+            category: a.category,
+            neType: a.neType,
+            neName: a.neName,
+            description: a.description
+          };
         }));
+
+        const allOutages = [
+          ...rangeFetch.reports,
+          ...processedAlarms
+        ];
 
         console.log('🌐 Daily: Backend API response:', {
           totalFetched: rangeFetch.reports.length,

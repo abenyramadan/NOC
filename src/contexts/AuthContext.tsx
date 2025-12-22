@@ -7,11 +7,12 @@ interface User {
   name: string;
   username: string;
   email: string;
-  role: string;
+  role: 'admin' | 'engineer' | 'operator' | 'viewer';
   isActive: boolean;
   lastLogin: string;
   createdAt: string;
   updatedAt: string;
+  mustChangePassword?: boolean;
 }
 
 // Role-based permissions (matching backend)
@@ -83,7 +84,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const token = localStorage.getItem('authToken');
         if (token) {
           const userData = await authService.getCurrentUser(token);
-          setUser(userData);
+          setUser({
+            ...userData,
+            role: userData.role as 'admin' | 'engineer' | 'operator' | 'viewer'
+          });
         }
       } catch (error) {
         console.error('Auth check failed:', error);
@@ -98,10 +102,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const login = async (username: string, password: string) => {
     try {
-      const { token, user } = await authService.login(username, password);
+      const response = await authService.login(username, password);
+      const { token, mustChangePassword, user } = response;
+      
       localStorage.setItem('authToken', token);
-      setUser(user);
-      navigate('/');
+      setUser({
+        ...user,
+        role: user.role as 'admin' | 'engineer' | 'operator' | 'viewer'
+      });
+      
+      // If password change is required, redirect to change password page
+      if (mustChangePassword) {
+        navigate('/change-password');
+      } else {
+        navigate('/');
+      }
     } catch (error) {
       console.error('Login failed:', error);
       throw error;

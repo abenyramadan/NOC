@@ -68,6 +68,28 @@ const alarmSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  },
+  // MAE-specific fields for richer display in reports
+  alarmName: {
+    type: String,
+    default: null
+  },
+  category: {
+    type: String,
+    default: null
+  },
+  neType: {
+    type: String,
+    default: null
+  },
+  neName: {
+    type: String,
+    default: null
+  },
+  region: {
+    type: String,
+    default: null,
+    index: true
   }
 }, {
   timestamps: true

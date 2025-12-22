@@ -1,22 +1,12 @@
-import express from 'express';
-import OutageReport from '../models/OutageReport.js';
-import Alarm from '../models/Alarm.js';
-import Ticket from '../models/Ticket.js';
-import Site from '../models/Site.js';
-import HourlyReportEmail from '../models/HourlyReportEmail.js';
-import { authenticate } from '../middleware/auth.js';
+import express from "express";
+import OutageReport from "../models/OutageReport.js";
+import Alarm from "../models/Alarm.js";
+import Ticket from "../models/Ticket.js";
+import Site from "../models/Site.js";
+import HourlyReportEmail from "../models/HourlyReportEmail.js";
+import { authenticate } from "../middleware/auth.js";
 
-// Dynamic import for email service (to match server.js pattern)
-let emailService;
-(async () => {
-  try {
-    const emailModule = await import('./emailService.js');
-    emailService = emailModule.emailService;
-    console.log('✅ Email service imported successfully');
-  } catch (error) {
-    console.error('❌ Failed to import email service:', error.message);
-  }
-})();
+import { getEmailService } from "./emailService.js";
 
 class OutageReportService {
   constructor() {
@@ -29,21 +19,31 @@ class OutageReportService {
    */
   startScheduler() {
     if (this.isRunning) {
-      console.log('⏰ Outage report scheduler already running');
+      console.log("⏰ Outage report scheduler already running");
       return;
     }
 
-    console.log('🚀 Starting outage report scheduler (hourly)');
+    console.log("🚀 Starting outage report scheduler (hourly)");
     this.isRunning = true;
 
     // Calculate time until next hour
     const scheduleNextRun = () => {
       const now = new Date();
-      const nextHour = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1, 0, 0, 0);
+      const nextHour = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        now.getHours() + 1,
+        0,
+        0,
+        0
+      );
       const delay = nextHour.getTime() - now.getTime();
-      
-      console.log(`⏰ Next hourly report will run in ${Math.round(delay / 60000)} minutes`);
-      
+
+      console.log(
+        `⏰ Next hourly report will run in ${Math.round(delay / 60000)} minutes`
+      );
+
       setTimeout(async () => {
         await this.generateHourlyReport();
         // Set up hourly interval after first run
@@ -56,7 +56,7 @@ class OutageReportService {
     // Run immediately for testing, then schedule hourly
     this.generateHourlyReport().finally(scheduleNextRun);
 
-    console.log('✅ Outage report scheduler started');
+    console.log("✅ Outage report scheduler started");
   }
 
   /**
@@ -68,7 +68,7 @@ class OutageReportService {
       this.intervalId = null;
     }
     this.isRunning = false;
-    console.log('🛑 Outage report scheduler stopped');
+    console.log("🛑 Outage report scheduler stopped");
   }
 
   /**
@@ -76,81 +76,109 @@ class OutageReportService {
    */
   async generateHourlyReport() {
     try {
-      console.log('📊 Generating hourly email summary from ALL outage reports for current day...');
+      console.log(
+        "📊 Generating hourly email summary from ALL outage reports for current day..."
+      );
 
       // Get current date for daily reporting
       const now = new Date();
-      const currentDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const reportHour = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours());
+      const currentDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+      );
+      const reportHour = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        now.getHours()
+      );
 
-      console.log(`📅 Gathering outage reports for current day: ${currentDate.toDateString()} (showing all outages from this date)`);
+      console.log(
+        `📅 Gathering outage reports for current day: ${currentDate.toDateString()} (showing all outages from this date)`
+      );
 
       // Set to start of day (00:00:00)
       const startOfDay = currentDate; // Midnight of current day
       const endOfDay = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000); // Midnight of next day
 
       // Get all reports for this day, including unresolved carry-overs and carry-overs resolved today
-      const allReportsToday = await OutageReport.find({
-        $or: [
-          // Reports that occurred on the selected date
-          { occurrenceTime: { $gte: startOfDay, $lt: endOfDay } },
-          // Reports that were resolved on the selected date (carry-overs resolved today)
-          {
-            resolutionTime: { $gte: startOfDay, $lt: endOfDay },
-            status: { $in: ['Resolved', 'Closed'] }
-          },
-          // Unresolved carry-over outages from previous days
-          {
-            occurrenceTime: { $lt: startOfDay },
-            status: { $in: ['Open', 'In Progress'] }
-          }
-        ]
-      }, 'siteCode siteName region alarmType occurrenceTime resolutionTime status expectedRestorationTime mandatoryRestorationTime rootCause subrootCause supervisor username')
-      .populate('alarmId')
-      .sort({ occurrenceTime: -1 })
-      .lean(); // Add .lean() for better performance and to get plain JS objects
+      const allReportsToday = await OutageReport.find(
+        {
+          $or: [
+            // Reports that occurred on the selected date
+            { occurrenceTime: { $gte: startOfDay, $lt: endOfDay } },
+            // Reports that were resolved on the selected date (carry-overs resolved today)
+            {
+              resolutionTime: { $gte: startOfDay, $lt: endOfDay },
+              status: { $in: ["Resolved", "Closed"] },
+            },
+            // Unresolved carry-over outages from previous days
+            {
+              occurrenceTime: { $lt: startOfDay },
+              status: { $in: ["Open", "In Progress"] },
+            },
+          ],
+        },
+        "siteCode siteName region alarmType occurrenceTime resolutionTime status expectedRestorationTime mandatoryRestorationTime rootCause subrootCause supervisor username"
+      )
+        .populate("alarmId")
+        .sort({ occurrenceTime: -1 })
+        .lean(); // Add .lean() for better performance and to get plain JS objects
 
       // Categorize reports
-      const newOutages = allReportsToday.filter(report => 
-        report.occurrenceTime >= startOfDay && report.occurrenceTime < endOfDay
-      );
-      
-      const carryOverOutages = allReportsToday.filter(report => 
-        report.occurrenceTime < startOfDay && 
-        (report.status === 'Open' || report.status === 'In Progress')
-      );
-      
-      const resolvedToday = allReportsToday.filter(report => 
-        (report.status === 'Resolved' || report.status === 'Closed') &&
-        report.resolutionTime && 
-        report.resolutionTime >= startOfDay && 
-        report.resolutionTime < endOfDay
+      const newOutages = allReportsToday.filter(
+        (report) =>
+          report.occurrenceTime >= startOfDay &&
+          report.occurrenceTime < endOfDay
       );
 
-      console.log(`🔍 Found ${allReportsToday.length} total outage reports for current day`);
-      
+      const carryOverOutages = allReportsToday.filter(
+        (report) =>
+          report.occurrenceTime < startOfDay &&
+          (report.status === "Open" || report.status === "In Progress")
+      );
+
+      const resolvedToday = allReportsToday.filter(
+        (report) =>
+          (report.status === "Resolved" || report.status === "Closed") &&
+          report.resolutionTime &&
+          report.resolutionTime >= startOfDay &&
+          report.resolutionTime < endOfDay
+      );
+
+      console.log(
+        `🔍 Found ${allReportsToday.length} total outage reports for current day`
+      );
+
       // Log alarm types for debugging
-      console.log('Sample reports with alarm types:');
+      console.log("Sample reports with alarm types:");
       allReportsToday.slice(0, 5).forEach((report, i) => {
         console.log(`Report ${i + 1}:`, {
           _id: report._id,
           siteCode: report.siteCode,
-alarmType: report.alarmType,
+          alarmType: report.alarmType,
           alarmType: report.alarmType,
           status: report.status,
-          occurrenceTime: report.occurrenceTime
+          occurrenceTime: report.occurrenceTime,
         });
       });
 
       if (allReportsToday.length === 0) {
-        console.log('📭 No outage reports for current day, skipping email');
+        console.log("📭 No outage reports for current day, skipping email");
         return;
       }
 
-      const ongoingOutages = allReportsToday.filter(r => r.status === 'Open' || r.status === 'In Progress');
-      const resolvedOutages = allReportsToday.filter(r => r.status === 'Resolved' || r.status === 'Closed');
+      const ongoingOutages = allReportsToday.filter(
+        (r) => r.status === "Open" || r.status === "In Progress"
+      );
+      const resolvedOutages = allReportsToday.filter(
+        (r) => r.status === "Resolved" || r.status === "Closed"
+      );
 
-      console.log(`📊 Daily outage summary: ${ongoingOutages.length} ongoing, ${resolvedOutages.length} resolved`);
+      console.log(
+        `📊 Daily outage summary: ${ongoingOutages.length} ongoing, ${resolvedOutages.length} resolved`
+      );
 
       // Calculate SLA metrics based on expectedResolutionTime from outage reports
       let withinSLA = 0;
@@ -162,7 +190,7 @@ alarmType: report.alarmType,
         const startTime = report.occurrenceTime;
         const endTime = report.resolutionTime;
         const expectedHours = report.expectedResolutionHours;
-        
+
         if (startTime && endTime) {
           const durationMinutes = Math.round((endTime - startTime) / 60000);
           totalResolutionMinutes += durationMinutes;
@@ -170,11 +198,18 @@ alarmType: report.alarmType,
 
           // If expectedResolutionHours is set, use it for SLA calculation
           if (expectedHours !== null && expectedHours !== undefined) {
-            const isWithinSLA = expectedHours && durationMinutes <= expectedHours * 60;
-            const slaStatus = expectedHours ? 
-              (isWithinSLA ? '✅ Within SLA' : '❌ Out of SLA') : '⚠️ Not Set';
-            const slaColor = expectedHours ? 
-              (isWithinSLA ? '#10b981' : '#ef4444') : '#f59e0b';
+            const isWithinSLA =
+              expectedHours && durationMinutes <= expectedHours * 60;
+            const slaStatus = expectedHours
+              ? isWithinSLA
+                ? "✅ Within SLA"
+                : "❌ Out of SLA"
+              : "⚠️ Not Set";
+            const slaColor = expectedHours
+              ? isWithinSLA
+                ? "#10b981"
+                : "#ef4444"
+              : "#f59e0b";
             if (isWithinSLA) {
               withinSLA++;
             } else {
@@ -183,11 +218,11 @@ alarmType: report.alarmType,
           } else {
             // Fallback to default thresholds if expectedResolutionHours is not set
             const slaThresholds = {
-              critical: parseInt(process.env.SLA_CRITICAL_MINUTES || '30'),
-              major: parseInt(process.env.SLA_MAJOR_MINUTES || '60'),
-              minor: parseInt(process.env.SLA_MINOR_MINUTES || '120')
+              critical: parseInt(process.env.SLA_CRITICAL_MINUTES || "30"),
+              major: parseInt(process.env.SLA_MAJOR_MINUTES || "60"),
+              minor: parseInt(process.env.SLA_MINOR_MINUTES || "120"),
             };
-            const severity = (report.alarmType || '').toLowerCase();
+            const severity = (report.alarmType || "").toLowerCase();
             const slaThreshold = slaThresholds[severity] || slaThresholds.minor;
 
             if (durationMinutes <= slaThreshold) {
@@ -199,11 +234,15 @@ alarmType: report.alarmType,
         }
       }
 
-      const mttr = resolvedCount > 0 ? Math.round(totalResolutionMinutes / resolvedCount) : 0;
+      const mttr =
+        resolvedCount > 0
+          ? Math.round(totalResolutionMinutes / resolvedCount)
+          : 0;
 
       const regionMap = new Map();
       for (const report of allReportsToday) {
-        const region = (report.region && String(report.region).trim()) || 'Unknown';
+        const region =
+          (report.region && String(report.region).trim()) || "Unknown";
         if (!regionMap.has(region)) {
           regionMap.set(region, {
             region,
@@ -212,28 +251,38 @@ alarmType: report.alarmType,
             resolvedTickets: 0,
             criticalAlarms: 0,
             majorAlarms: 0,
-            minorAlarms: 0
+            minorAlarms: 0,
           });
         }
         const agg = regionMap.get(region);
         agg.totalTickets += 1;
-        if (report.status === 'In Progress' || report.status === 'Open') agg.inProgressTickets += 1;
-        if (report.status === 'Resolved' || report.status === 'Closed') agg.resolvedTickets += 1;
-        const sev = (report.alarmType || '').toUpperCase();
-        if (sev === 'CRITICAL') agg.criticalAlarms += 1;
-        if (sev === 'MAJOR') agg.majorAlarms += 1;
-        if (sev === 'MINOR') agg.minorAlarms += 1;
+        if (report.status === "In Progress" || report.status === "Open")
+          agg.inProgressTickets += 1;
+        if (report.status === "Resolved" || report.status === "Closed")
+          agg.resolvedTickets += 1;
+        const sev = (report.alarmType || "").toUpperCase();
+        if (sev === "CRITICAL") agg.criticalAlarms += 1;
+        if (sev === "MAJOR") agg.majorAlarms += 1;
+        if (sev === "MINOR") agg.minorAlarms += 1;
       }
-      const ticketsPerRegion = Array.from(regionMap.values()).sort((a, b) => b.totalTickets - a.totalTickets);
+      const ticketsPerRegion = Array.from(regionMap.values()).sort(
+        (a, b) => b.totalTickets - a.totalTickets
+      );
 
       // Send hourly report email - but only once per hour (database-tracked)
-      const existingEmailRecord = await HourlyReportEmail.findOne({ reportHour: reportHour });
-      
+      const existingEmailRecord = await HourlyReportEmail.findOne({
+        reportHour: reportHour,
+      });
+
       if (existingEmailRecord) {
-        console.log(`⏭️ Email already sent for hour ${reportHour.toISOString()} at ${existingEmailRecord.emailSentAt.toISOString()}, skipping duplicate`);
+        console.log(
+          `⏭️ Email already sent for hour ${reportHour.toISOString()} at ${existingEmailRecord.emailSentAt.toISOString()}, skipping duplicate`
+        );
       } else {
-        console.log(`📧 Sending hourly outage report email for hour: ${reportHour.toISOString()}`);
-        
+        console.log(
+          `📧 Sending hourly outage report email for hour: ${reportHour.toISOString()}`
+        );
+
         const emailResult = await this.sendOutageReportEmail({
           ongoingOutages,
           resolvedOutages,
@@ -247,29 +296,29 @@ alarmType: report.alarmType,
             mttr,
             totalNewOutages: newOutages.length,
             totalCarryOverOutages: carryOverOutages.length,
-            totalResolvedToday: resolvedToday.length
+            totalResolvedToday: resolvedToday.length,
           },
-          ticketsPerRegion: ticketsPerRegion.map(item => ({
+          ticketsPerRegion: ticketsPerRegion.map((item) => ({
             region: item.region,
             totalTickets: item.totalTickets,
             inProgressTickets: item.inProgressTickets,
             resolvedTickets: item.resolvedTickets,
             criticalAlarms: item.criticalAlarms,
             majorAlarms: item.majorAlarms,
-            minorAlarms: item.minorAlarms
+            minorAlarms: item.minorAlarms,
           })),
-          reportHour: reportHour
+          reportHour: reportHour,
         });
 
         // Mark all outage reports as emailed (to prevent duplicate emails)
-        const reportIds = allReportsToday.map(r => r._id);
+        const reportIds = allReportsToday.map((r) => r._id);
         await OutageReport.updateMany(
           { _id: { $in: reportIds } },
-          { 
-            $set: { 
+          {
+            $set: {
               isEmailSent: true,
-              emailSentAt: new Date()
-            }
+              emailSentAt: new Date(),
+            },
           }
         );
         console.log(`✅ Marked ${reportIds.length} outage reports as emailed`);
@@ -281,14 +330,15 @@ alarmType: report.alarmType,
           ongoingCount: ongoingOutages.length,
           resolvedCount: resolvedOutages.length,
           emailRecipients: emailResult?.recipients || [],
-          emailMessageId: emailResult?.messageId || null
+          emailMessageId: emailResult?.messageId || null,
         });
-        
-        console.log(`✅ Email sent and recorded for hour ${reportHour.toISOString()}, will not send again`);
-      }
 
+        console.log(
+          `✅ Email sent and recorded for hour ${reportHour.toISOString()}, will not send again`
+        );
+      }
     } catch (error) {
-      console.error('❌ Error generating hourly outage report:', error);
+      console.error("❌ Error generating hourly outage report:", error);
     }
   }
 
@@ -302,23 +352,23 @@ alarmType: report.alarmType,
 
       // Map full names to abbreviations for consistency
       const regionMappings = {
-        'CENTRAL EQUATORIA': 'C.E.S',
-        'EASTERN EQUATORIA': 'E.E.S',
-        'WESTERN EQUATORIA': 'W.E.S',
-        'NORTHERN BAHR EL GHAZAL': 'N.B.G.S',
-        'WESTERN BAHR EL GHAZAL': 'W.B.G.S',
-        'WARRAP': 'WARRAP',
-        'LAKES STATE' : 'LAKES',
-        'UNITY': 'UNITY',
-        'JONGLEI':'JONGLEI',
-        'UPPER NILE': 'UPPERNILE'
+        "CENTRAL EQUATORIA": "C.E.S",
+        "EASTERN EQUATORIA": "E.E.S",
+        "WESTERN EQUATORIA": "W.E.S",
+        "NORTHERN BAHR EL GHAZAL": "N.B.G.S",
+        "WESTERN BAHR EL GHAZAL": "W.B.G.S",
+        WARRAP: "WARRAP",
+        "LAKES STATE": "LAKES",
+        UNITY: "UNITY",
+        JONGLEI: "JONGLEI",
+        "UPPER NILE": "UPPERNILE",
       };
 
       // Return mapped abbreviation if it exists, otherwise return the region as-is if it's already an abbreviation
       return regionMappings[region] || region;
     }
 
-    return 'C.E.S'; // Default to C.E.S if no region specified
+    return "C.E.S"; // Default to C.E.S if no region specified
   }
 
   /**
@@ -326,39 +376,36 @@ alarmType: report.alarmType,
    */
   async sendOutageReportEmail(data) {
     try {
-      console.log('📧 Sending hourly outage report email...');
+      console.log("📧 Sending hourly outage report email...");
 
-      // Wait for email service to be available (up to 5 seconds)
-      let attempts = 0;
-      while (!emailService && attempts < 50) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        attempts++;
-      }
+      // Get email service instance
+      const emailService = await getEmailService();
 
       if (!emailService || !emailService.sendEmail) {
-        console.error('❌ Email service not available after waiting');
+        console.error("❌ Email service not available");
         return;
       }
 
       const reportHour = data.reportHour;
       const emailData = {
         subject: `🚨 NOCALERT Hourly Outage Status Report - ${new Date().toLocaleDateString()} ${new Date().getHours()}:00`,
-        html: this.generateEmailTemplate(data)
+        html: this.generateEmailTemplate(data),
       };
 
       // Send to NOC team (configured in email service)
       const emailResult = await emailService.sendEmail(emailData);
 
-      console.log(`✅ Daily outage status report email sent successfully (${data.ongoingOutages.length} ongoing, ${data.resolvedOutages.length} resolved)`);
+      console.log(
+        `✅ Daily outage status report email sent successfully (${data.ongoingOutages.length} ongoing, ${data.resolvedOutages.length} resolved)`
+      );
 
       // Return email result for tracking
       return {
         recipients: emailResult?.recipients || [process.env.NOC_ALERTS_EMAIL],
-        messageId: emailResult?.messageId || null
+        messageId: emailResult?.messageId || null,
       };
-
     } catch (error) {
-      console.error('❌ Failed to send outage report email:', error);
+      console.error("❌ Failed to send outage report email:", error);
       return null;
     }
   }
@@ -367,38 +414,69 @@ alarmType: report.alarmType,
    * Generate HTML email template for outage report
    */
   generateEmailTemplate(data) {
-    const { ongoingOutages, resolvedOutages, newOutages = [], carryOverOutages = [], resolvedToday = [], metrics, ticketsPerRegion, reportHour } = data;
-    
+    const {
+      ongoingOutages,
+      resolvedOutages,
+      newOutages = [],
+      carryOverOutages = [],
+      resolvedToday = [],
+      metrics,
+      ticketsPerRegion,
+      reportHour,
+    } = data;
+
     // Use the categorized metrics from the data parameter
     const resolvedTickets = metrics.totalResolvedToday;
-    const inProgressTickets = ongoingOutages.filter(o => o.status === 'In Progress' || o.status === 'Open').length;
+    const inProgressTickets = ongoingOutages.filter(
+      (o) => o.status === "In Progress" || o.status === "Open"
+    ).length;
     const totalTickets = inProgressTickets + resolvedTickets;
 
-    const resolutionRate = totalTickets > 0 ? Math.round((resolvedTickets / totalTickets) * 100) : 0;
-    const slaCompliance = metrics.totalResolved > 0 ? Math.round((metrics.withinSLA / metrics.totalResolved) * 100) : 100;
-    const mttrFormatted = `${Math.floor(metrics.mttr / 60)}h ${metrics.mttr % 60}m`;
+    const resolutionRate =
+      totalTickets > 0 ? Math.round((resolvedTickets / totalTickets) * 100) : 0;
+    const slaCompliance =
+      metrics.totalResolved > 0
+        ? Math.round((metrics.withinSLA / metrics.totalResolved) * 100)
+        : 100;
+    const mttrFormatted = `${Math.floor(metrics.mttr / 60)}h ${
+      metrics.mttr % 60
+    }m`;
 
     // Use the provided carryOverOutages instead of recalculating
-    const todayOngoingOutages = ongoingOutages.filter(o => 
-      !carryOverOutages.some(co => co._id.toString() === o._id.toString())
+    const todayOngoingOutages = ongoingOutages.filter(
+      (o) =>
+        !carryOverOutages.some((co) => co._id.toString() === o._id.toString())
     );
 
     const formatDateTime = (date) => {
-      if (!date) return 'N/A';
+      if (!date) return "N/A";
       const d = new Date(date);
-      const day = d.getDate().toString().padStart(2, '0');
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const day = d.getDate().toString().padStart(2, "0");
+      const monthNames = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
       const month = monthNames[d.getMonth()];
       const year = d.getFullYear();
-      const hours = d.getHours().toString().padStart(2, '0');
-      const minutes = d.getMinutes().toString().padStart(2, '0');
-      const ampm = d.getHours() >= 12 ? 'PM' : 'AM';
-      
+      const hours = d.getHours().toString().padStart(2, "0");
+      const minutes = d.getMinutes().toString().padStart(2, "0");
+      const ampm = d.getHours() >= 12 ? "PM" : "AM";
+
       return `${day}/${month}/${year} ${hours}:${minutes} ${ampm}`;
     };
 
     const formatDuration = (start, end) => {
-      if (!start || !end) return 'N/A';
+      if (!start || !end) return "N/A";
       const diffMs = new Date(end) - new Date(start);
       const hours = Math.floor(diffMs / (1000 * 60 * 60));
       const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
@@ -406,35 +484,42 @@ alarmType: report.alarmType,
     };
 
     const getSlaStatus = (report) => {
-      if (!report.occurrenceTime || !report.resolutionTime) return { status: 'N/A', color: '#9ca3af' };
-      
-      const actualMinutes = Math.round((new Date(report.resolutionTime) - new Date(report.occurrenceTime)) / 60000);
-      
-      if (report.expectedResolutionHours !== undefined && report.expectedResolutionHours !== null) {
+      if (!report.occurrenceTime || !report.resolutionTime)
+        return { status: "N/A", color: "#9ca3af" };
+
+      const actualMinutes = Math.round(
+        (new Date(report.resolutionTime) - new Date(report.occurrenceTime)) /
+          60000
+      );
+
+      if (
+        report.expectedResolutionHours !== undefined &&
+        report.expectedResolutionHours !== null
+      ) {
         const expectedMinutes = report.expectedResolutionHours * 60;
         const isWithinSLA = actualMinutes <= expectedMinutes;
         return {
-          status: isWithinSLA ? '✅ Within SLA' : '❌ Out of SLA',
-          color: isWithinSLA ? '#059669' : '#dc2626'
+          status: isWithinSLA ? "✅ Within SLA" : "❌ Out of SLA",
+          color: isWithinSLA ? "#059669" : "#dc2626",
         };
       }
-      
+
       // Default SLA thresholds
       const slaThresholds = {
-        'CRITICAL': 60,   // 1 hour
-        'MAJOR': 120,     // 2 hours
-        'MINOR': 240,     // 4 hours
-        'WARNING': 480,   // 8 hours
-        'INFO': 1440      // 24 hours
+        CRITICAL: 60, // 1 hour
+        MAJOR: 120, // 2 hours
+        MINOR: 240, // 4 hours
+        WARNING: 480, // 8 hours
+        INFO: 1440, // 24 hours
       };
-      
-      const alarmType = (report.alarmType || 'INFO').toUpperCase();
+
+      const alarmType = (report.alarmType || "INFO").toUpperCase();
       const expectedMinutes = slaThresholds[alarmType] || 240;
       const isWithinSLA = actualMinutes <= expectedMinutes;
-      
+
       return {
-        status: isWithinSLA ? '✅ Within SLA' : '❌ Out of SLA',
-        color: isWithinSLA ? '#059669' : '#dc2626'
+        status: isWithinSLA ? "✅ Within SLA" : "❌ Out of SLA",
+        color: isWithinSLA ? "#059669" : "#dc2626",
       };
     };
 
@@ -458,12 +543,16 @@ alarmType: report.alarmType,
                           <!-- Carry-Overs Card -->
                           <td align="left" valign="top" width="150" style="width: 150px; background-color: #f97316; padding: 14px 16px; color: white;">
                             <div style="font-size: 12px; margin-bottom: 6px; color: #fed7aa;">Carry-Overs</div>
-                            <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${metrics.totalCarryOverOutages || 0}</div>
+                            <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${
+                              metrics.totalCarryOverOutages || 0
+                            }</div>
                           </td>
                           <!-- Resolved Today Card -->
                           <td align="left" valign="top" width="150" style="width: 150px; background-color: #10b981; padding: 14px 16px; color: white;">
                             <div style="font-size: 12px; margin-bottom: 6px; color: #a7f3d0;">Resolved Today</div>
-                            <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${metrics.totalResolvedToday || 0}</div>
+                            <div style="font-size: 22px; font-weight: bold; line-height: 1.2;">${
+                              metrics.totalResolvedToday || 0
+                            }</div>
                           </td>
                           <!-- MTTR Card -->
                           <td align="left" valign="top" width="150" style="width: 150px; background-color: #8b5cf6; padding: 14px 16px; color: white;">
@@ -482,56 +571,99 @@ alarmType: report.alarmType,
     `;
 
     // Debug: Log the first few reports to check alarm type
-    console.log('Sample reports with alarm types:');
+    console.log("Sample reports with alarm types:");
     ongoingOutages.slice(0, 3).forEach((report, i) => {
       console.log(`Report ${i + 1}:`, {
         _id: report._id,
         siteCode: report.siteCode,
         salarmType: report.salarmType,
         alarmType: report.alarmType,
-        alarmId: report.alarmId
+        alarmId: report.alarmId,
       });
     });
 
     // Generate ongoing outages table
-    const ongoingRows = ongoingOutages.map(report => {
-      const duration = formatDuration(report.occurrenceTime, new Date());
-      
-      return `
-        <tr style="border-bottom: 1px solid #e5e7eb;" key="ongoing-${report._id}">
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.siteCode || 'N/A'}</td>
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.siteName || report.siteNo || report.alarmId?.siteName || 'N/A'}</td>
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.region || 'N/A'}</td>
-          <td style="padding: 12px 16px; color: #1f2937; font-weight: 600; color: ${report.alarmType === 'CRITICAL' ? '#dc2626' : report.alarmType === 'MAJOR' ? '#d97706' : '#b45309'}; font-size: 13px;">
-            ${report.alarmType || 'N/A'}
+    const ongoingRows = ongoingOutages
+      .map((report) => {
+        const duration = formatDuration(report.occurrenceTime, new Date());
+
+        return `
+        <tr style="border-bottom: 1px solid #e5e7eb;" key="ongoing-${
+          report._id
+        }">
+          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${
+            report.siteCode || "N/A"
+          }</td>
+          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${
+            report.siteName ||
+            report.siteNo ||
+            report.alarmId?.siteName ||
+            "N/A"
+          }</td>
+          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${
+            report.region || "N/A"
+          }</td>
+          <td style="padding: 12px 16px; color: #1f2937; font-weight: 600; color: ${
+            report.alarmType === "CRITICAL"
+              ? "#dc2626"
+              : report.alarmType === "MAJOR"
+              ? "#d97706"
+              : "#b45309"
+          }; font-size: 13px;">
+            ${report.alarmType || "N/A"}
           </td>
-          <td style="padding: 12px 16px; color: #6b7280; font-size: 13px;">${formatDateTime(report.occurrenceTime)}</td>
+          <td style="padding: 12px 16px; color: #6b7280; font-size: 13px;">${formatDateTime(
+            report.occurrenceTime
+          )}</td>
           <td style="padding: 12px 16px; color: #6b7280; font-size: 13px;">${duration}</td>
-          <td style="padding: 12px 16px; color: #6b7280; font-size: 13px;">${report.expectedRestorationTime ? formatDateTime(report.expectedRestorationTime) : 'N/A'}</td>
-          <td style="padding: 12px 16px; color: #6b7280; font-size: 13px;">${report.mandatoryRestorationTime ? formatDateTime(report.mandatoryRestorationTime) : 'N/A'}</td>
+          <td style="padding: 12px 16px; color: #6b7280; font-size: 13px;">${
+            report.expectedRestorationTime
+              ? formatDateTime(report.expectedRestorationTime)
+              : "N/A"
+          }</td>
+          <td style="padding: 12px 16px; color: #6b7280; font-size: 13px;">${
+            report.mandatoryRestorationTime
+              ? formatDateTime(report.mandatoryRestorationTime)
+              : "N/A"
+          }</td>
           <td style="padding: 12px 16px; font-size: 13px;">
-            <span style="display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 9999px; background-color: ${report.status === 'In Progress' ? '#fef3c7' : '#e0f2fe'}; color: ${report.status === 'In Progress' ? '#92400e' : '#075985'}; font-size: 12px; font-weight: 600;">
-              ${report.status || 'Open'}
+            <span style="display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 9999px; background-color: ${
+              report.status === "In Progress" ? "#fef3c7" : "#e0f2fe"
+            }; color: ${
+          report.status === "In Progress" ? "#92400e" : "#075985"
+        }; font-size: 12px; font-weight: 600;">
+              ${report.status || "Open"}
             </span>
           </td>
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.rootCause || 'N/A'}</td>
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.subrootCause || 'N/A'}</td>
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.supervisor || 'N/A'}</td>
-          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${report.username || 'N/A'}</td>
+          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${
+            report.rootCause || "N/A"
+          }</td>
+          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${
+            report.subrootCause || "N/A"
+          }</td>
+          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${
+            report.supervisor || "N/A"
+          }</td>
+          <td style="padding: 12px 16px; color: #1f2937; font-size: 13px;">${
+            report.username || "N/A"
+          }</td>
       `;
-    }).join('');
+      })
+      .join("");
 
-
-    
-        // Generate Outlook-compatible region breakdown HTML using table layout
-    const regionBreakdown = ticketsPerRegion.length > 0 ? `
+    // Generate Outlook-compatible region breakdown HTML using table layout
+    const regionBreakdown =
+      ticketsPerRegion.length > 0
+        ? `
                   <!-- Region Breakdown -->
                   <tr>
                     <td align="left" valign="top" style="padding: 0 24px 24px 24px;">
                       <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #ffffff; border: 1px solid #e5e7eb;">
                         <tr>
                           <td align="left" valign="top" style="padding: 12px 16px; background-color: #1e40af; color: white; font-weight: bold; font-size: 16px;">
-                            Tickets Per Region (${ticketsPerRegion.length} regions)
+                            Tickets Per Region (${
+                              ticketsPerRegion.length
+                            } regions)
                           </td>
                         </tr>
                         <tr>
@@ -549,23 +681,32 @@ alarmType: report.alarmType,
                                 </tr>
                               </thead>
                               <tbody>
-                                ${ticketsPerRegion.map(region => {
-                                const totalResolved = region.resolvedTickets || 0;
-                                const inProgress = region.inProgressTickets || 0;
-                                const criticalAlarms = region.criticalAlarms || 0;
-                                const majorAlarms = region.majorAlarms || 0;
-                                const minorAlarms = region.minorAlarms || 0;
-                                return `
+                                ${ticketsPerRegion
+                                  .map((region) => {
+                                    const totalResolved =
+                                      region.resolvedTickets || 0;
+                                    const inProgress =
+                                      region.inProgressTickets || 0;
+                                    const criticalAlarms =
+                                      region.criticalAlarms || 0;
+                                    const majorAlarms = region.majorAlarms || 0;
+                                    const minorAlarms = region.minorAlarms || 0;
+                                    return `
                                   <tr>
-                                    <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-weight: bold; color: #1f2937; font-size: 14px;">${region.region || 'Unknown'}</td>
-                                    <td align="right" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-weight: bold; color: #1f2937; font-size: 14px;">${region.totalTickets || 0}</td>
+                                    <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-weight: bold; color: #1f2937; font-size: 14px;">${
+                                      region.region || "Unknown"
+                                    }</td>
+                                    <td align="right" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-weight: bold; color: #1f2937; font-size: 14px;">${
+                                      region.totalTickets || 0
+                                    }</td>
                                     <td align="right" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #d97706; font-size: 14px;">${inProgress}</td>
                                     <td align="right" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #059669; font-size: 14px;">${totalResolved}</td>
                                     <td align="right" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #dc2626; font-weight: bold; font-size: 14px;">${criticalAlarms}</td>
                                     <td align="right" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #d97706; font-weight: bold; font-size: 14px;">${majorAlarms}</td>
                                     <td align="right" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #b45309; font-size: 14px;">${minorAlarms}</td>
                                   </tr>`;
-                              }).join('')}
+                                  })
+                                  .join("")}
                               </tbody>
                             </table>
                           </td>
@@ -573,7 +714,8 @@ alarmType: report.alarmType,
                       </table>
                     </td>
                   </tr>
-    ` : '';
+    `
+        : "";
 
     return `
       <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -660,7 +802,11 @@ alarmType: report.alarmType,
                   <tr>
                     <td align="left" valign="top" style="padding: 24px;">
                       <h1 style="margin: 0 0 8px 0; padding: 0; color: #1a365d; font-size: 24px; font-weight: bold;">NOC Hourly Outage Report</h1>
-                      <p style="margin: 0; color: #4a5568; font-size: 14px;">Generated on ${formatDateTime(new Date())} • ${metrics.totalCarryOverOutages || 0} Carry-Over • ${metrics.totalResolvedToday || 0} Resolved</p>
+                      <p style="margin: 0; color: #4a5568; font-size: 14px;">Generated on ${formatDateTime(
+                        new Date()
+                      )} • ${metrics.totalCarryOverOutages || 0} Carry-Over • ${
+      metrics.totalResolvedToday || 0
+    } Resolved</p>
                     </td>
                   </tr>
 
@@ -668,13 +814,17 @@ alarmType: report.alarmType,
                   ${summaryCards}
 
                   <!-- Carry-Over Outages -->
-                  ${carryOverOutages.length > 0 ? `
+                  ${
+                    carryOverOutages.length > 0
+                      ? `
                   <tr>
                     <td align="left" valign="top" style="padding: 0 24px 24px 24px;">
                       <table border="0" cellpadding="0" cellspacing="0" width="100%" style="border: 2px solid #f97316; background-color: #fff7ed;">
                         <tr>
                           <td align="left" valign="top" style="padding: 16px; background-color: #ffedd5; border-bottom: 1px solid #fed7aa;">
-                            <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #111827;">Carry-Over Outages (${carryOverOutages.length})</h2>
+                            <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #111827;">Carry-Over Outages (${
+                              carryOverOutages.length
+                            })</h2>
                           </td>
                         </tr>
                         <tr>
@@ -692,22 +842,47 @@ alarmType: report.alarmType,
                                 </tr>
                               </thead>
                               <tbody>
-                                ${carryOverOutages.map(report => {
-                                  const daysOpen = Math.floor((new Date() - new Date(report.occurrenceTime)) / (1000 * 60 * 60 * 24));
-                                  return `
+                                ${carryOverOutages
+                                  .map((report) => {
+                                    const daysOpen = Math.floor(
+                                      (new Date() -
+                                        new Date(report.occurrenceTime)) /
+                                        (1000 * 60 * 60 * 24)
+                                    );
+                                    return `
                                     <tr>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteCode || 'N/A'}</td>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteName || report.siteNo || report.alarmId?.siteName || 'N/A'}</td>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.region || 'N/A'}</td>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937; font-weight: bold; color: ${report.alarmType === 'CRITICAL' ? '#dc2626' : report.alarmType === 'MAJOR' ? '#d97706' : '#b45309'};">${report.alarmType || 'N/A'}</td>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${formatDateTime(report.occurrenceTime)}</td>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${daysOpen} day${daysOpen !== 1 ? 's' : ''}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                        report.siteCode || "N/A"
+                                      }</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                        report.siteName ||
+                                        report.siteNo ||
+                                        report.alarmId?.siteName ||
+                                        "N/A"
+                                      }</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                        report.region || "N/A"
+                                      }</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937; font-weight: bold; color: ${
+                                        report.alarmType === "CRITICAL"
+                                          ? "#dc2626"
+                                          : report.alarmType === "MAJOR"
+                                          ? "#d97706"
+                                          : "#b45309"
+                                      };">${report.alarmType || "N/A"}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${formatDateTime(
+                                        report.occurrenceTime
+                                      )}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${daysOpen} day${
+                                      daysOpen !== 1 ? "s" : ""
+                                    }</td>
                                       <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px;">
                                         <span style="background-color: #fef3c7; color: #92400e; padding: 4px 8px; font-size: 12px; font-weight: bold;">Carry-Over</span>
                                       </td>
                                     </tr>
                                   `;
-                                }).join('')}
+                                  })
+                                  .join("")}
                               </tbody>
                             </table>
                           </td>
@@ -715,7 +890,9 @@ alarmType: report.alarmType,
                       </table>
                     </td>
                   </tr>
-                  ` : ''}
+                  `
+                      : ""
+                  }
 
                   <!-- Ongoing Outages -->
                   <tr>
@@ -723,12 +900,16 @@ alarmType: report.alarmType,
                       <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #ffffff; border: 1px solid #e5e7eb;">
                         <tr>
                           <td align="left" valign="top" style="padding: 16px; background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
-                            <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #111827;">Ongoing Outages (${todayOngoingOutages.length})</h2>
+                            <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #111827;">Ongoing Outages (${
+                              todayOngoingOutages.length
+                            })</h2>
                           </td>
                         </tr>
                         <tr>
                           <td align="left" valign="top">
-                            ${todayOngoingOutages.length > 0 ? `
+                            ${
+                              todayOngoingOutages.length > 0
+                                ? `
                             <table border="0" cellpadding="0" cellspacing="0" width="100%">
                               <thead>
                                 <tr style="background-color: #f9fafb;">
@@ -742,25 +923,58 @@ alarmType: report.alarmType,
                                 </tr>
                               </thead>
                               <tbody>
-                                ${todayOngoingOutages.map(report => {
-                                  const duration = formatDuration(report.occurrenceTime, new Date());
-                                  return `
+                                ${todayOngoingOutages
+                                  .map((report) => {
+                                    const duration = formatDuration(
+                                      report.occurrenceTime,
+                                      new Date()
+                                    );
+                                    return `
                                     <tr>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteCode || 'N/A'}</td>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteName || report.siteNo || report.alarmId?.siteName || 'N/A'}</td>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.region || 'N/A'}</td>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937; font-weight: bold; color: ${report.alarmType === 'CRITICAL' ? '#dc2626' : report.alarmType === 'MAJOR' ? '#d97706' : '#b45309'};">${report.alarmType || 'N/A'}</td>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${formatDateTime(report.occurrenceTime)}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                        report.siteCode || "N/A"
+                                      }</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                        report.siteName ||
+                                        report.siteNo ||
+                                        report.alarmId?.siteName ||
+                                        "N/A"
+                                      }</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                        report.region || "N/A"
+                                      }</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937; font-weight: bold; color: ${
+                                        report.alarmType === "CRITICAL"
+                                          ? "#dc2626"
+                                          : report.alarmType === "MAJOR"
+                                          ? "#d97706"
+                                          : "#b45309"
+                                      };">${report.alarmType || "N/A"}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${formatDateTime(
+                                        report.occurrenceTime
+                                      )}</td>
                                       <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${duration}</td>
                                       <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px;">
-                                        <span style="background-color: ${report.status === 'In Progress' ? '#fef3c7' : '#e0f2fe'}; color: ${report.status === 'In Progress' ? '#92400e' : '#075985'}; padding: 4px 8px; font-size: 12px; font-weight: bold;">${report.status}</span>
+                                        <span style="background-color: ${
+                                          report.status === "In Progress"
+                                            ? "#fef3c7"
+                                            : "#e0f2fe"
+                                        }; color: ${
+                                      report.status === "In Progress"
+                                        ? "#92400e"
+                                        : "#075985"
+                                    }; padding: 4px 8px; font-size: 12px; font-weight: bold;">${
+                                      report.status
+                                    }</span>
                                       </td>
                                     </tr>
                                   `;
-                                }).join('')}
+                                  })
+                                  .join("")}
                               </tbody>
                             </table>
-                            ` : `
+                            `
+                                : `
                             <table border="0" cellpadding="0" cellspacing="0" width="100%">
                               <tr>
                                 <td align="center" valign="top" style="padding: 40px 20px; color: #6b7280; font-size: 14px;">
@@ -768,7 +982,8 @@ alarmType: report.alarmType,
                                 </td>
                               </tr>
                             </table>
-                            `}
+                            `
+                            }
                           </td>
                         </tr>
                       </table>
@@ -781,12 +996,16 @@ alarmType: report.alarmType,
                       <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #ffffff; border: 1px solid #e5e7eb;">
                         <tr>
                           <td align="left" valign="top" style="padding: 16px; background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
-                            <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #111827;">Resolved Today (${resolvedToday.length})</h2>
+                            <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #111827;">Resolved Today (${
+                              resolvedToday.length
+                            })</h2>
                           </td>
                         </tr>
                         <tr>
                           <td align="left" valign="top">
-                            ${resolvedToday.length > 0 ? `
+                            ${
+                              resolvedToday.length > 0
+                                ? `
                             <table border="0" cellpadding="0" cellspacing="0" width="100%">
                               <thead>
                                 <tr style="background-color: #f9fafb;">
@@ -800,28 +1019,51 @@ alarmType: report.alarmType,
                                 </tr>
                               </thead>
                               <tbody>
-                                ${resolvedToday.map(report => {
-                                  const duration = formatDuration(report.occurrenceTime, report.resolutionTime);
-                                  const slaStatus = getSlaStatus(report);
-                                  return `
+                                ${resolvedToday
+                                  .map((report) => {
+                                    const duration = formatDuration(
+                                      report.occurrenceTime,
+                                      report.resolutionTime
+                                    );
+                                    const slaStatus = getSlaStatus(report);
+                                    return `
                                     <tr>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteCode || 'N/A'}</td>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.siteName || report.siteNo || report.alarmId?.siteName || 'N/A'}</td>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${report.region || 'N/A'}</td>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937; font-weight: bold; color: ${report.alarmType === 'CRITICAL' ? '#dc2626' : report.alarmType === 'MAJOR' ? '#d97706' : '#b45309'};">${report.alarmType || 'N/A'}</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                        report.siteCode || "N/A"
+                                      }</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                        report.siteName ||
+                                        report.siteNo ||
+                                        report.alarmId?.siteName ||
+                                        "N/A"
+                                      }</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937;">${
+                                        report.region || "N/A"
+                                      }</td>
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #1f2937; font-weight: bold; color: ${
+                                        report.alarmType === "CRITICAL"
+                                          ? "#dc2626"
+                                          : report.alarmType === "MAJOR"
+                                          ? "#d97706"
+                                          : "#b45309"
+                                      };">${report.alarmType || "N/A"}</td>
                                       <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">${duration}</td>
                                       <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px;">
                                         <span style="background-color: #dcfce7; color: #166534; padding: 4px 8px; font-size: 12px; font-weight: bold;">Resolved</span>
                                       </td>
-                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: ${slaStatus.color}; font-weight: bold;">
+                                      <td align="left" valign="top" style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: ${
+                                        slaStatus.color
+                                      }; font-weight: bold;">
                                         ${slaStatus.status}
                                       </td>
                                     </tr>
                                   `;
-                                }).join('')}
+                                  })
+                                  .join("")}
                               </tbody>
                             </table>
-                            ` : `
+                            `
+                                : `
                             <table border="0" cellpadding="0" cellspacing="0" width="100%">
                               <tr>
                                 <td align="center" valign="top" style="padding: 40px 20px; color: #6b7280; font-size: 14px;">
@@ -829,7 +1071,8 @@ alarmType: report.alarmType,
                                 </td>
                               </tr>
                             </table>
-                            `}
+                            `
+                            }
                           </td>
                         </tr>
                       </table>
@@ -837,7 +1080,11 @@ alarmType: report.alarmType,
                   </tr>
 
                   <!-- Region Breakdown -->
-                  ${ticketsPerRegion && ticketsPerRegion.length > 0 ? regionBreakdown : ''}
+                  ${
+                    ticketsPerRegion && ticketsPerRegion.length > 0
+                      ? regionBreakdown
+                      : ""
+                  }
 
                   <!-- Footer -->
                   <tr>
@@ -862,17 +1109,22 @@ alarmType: report.alarmType,
    */
   async getOutageReportsForHour(hourDate) {
     try {
-      const startOfHour = new Date(hourDate.getFullYear(), hourDate.getMonth(), hourDate.getDate(), hourDate.getHours());
+      const startOfHour = new Date(
+        hourDate.getFullYear(),
+        hourDate.getMonth(),
+        hourDate.getDate(),
+        hourDate.getHours()
+      );
       const endOfHour = new Date(startOfHour.getTime() + 60 * 60 * 1000);
 
       return await OutageReport.find({
         reportHour: {
           $gte: startOfHour,
-          $lt: endOfHour
-        }
+          $lt: endOfHour,
+        },
       }).sort({ occurrenceTime: -1 });
     } catch (error) {
-      console.error('Error fetching outage reports for hour:', error);
+      console.error("Error fetching outage reports for hour:", error);
       throw error;
     }
   }
@@ -882,28 +1134,30 @@ alarmType: report.alarmType,
    */
   calculateSlaStatus(occurrenceTime, resolutionTime, expectedResolutionHours) {
     if (!resolutionTime || !expectedResolutionHours) {
-      console.log('⚠️  Missing data for SLA calculation:', {
+      console.log("⚠️  Missing data for SLA calculation:", {
         hasResolutionTime: !!resolutionTime,
         hasExpectedHours: !!expectedResolutionHours,
         resolutionTime,
-        expectedResolutionHours
+        expectedResolutionHours,
       });
       return null;
     }
-    
+
     const expectedResolutionMs = expectedResolutionHours * 60 * 60 * 1000;
-    const actualResolutionMs = new Date(resolutionTime) - new Date(occurrenceTime);
-    
-    console.log('📊 SLA Calculation:', {
+    const actualResolutionMs =
+      new Date(resolutionTime) - new Date(occurrenceTime);
+
+    console.log("📊 SLA Calculation:", {
       occurrenceTime: new Date(occurrenceTime).toISOString(),
       resolutionTime: new Date(resolutionTime).toISOString(),
       expectedResolutionHours,
       expectedResolutionMs,
-      actualResolutionMs: actualResolutionMs / (60 * 60 * 1000) + ' hours',
-      isWithinSLA: actualResolutionMs <= expectedResolutionMs ? 'within' : 'out'
+      actualResolutionMs: actualResolutionMs / (60 * 60 * 1000) + " hours",
+      isWithinSLA:
+        actualResolutionMs <= expectedResolutionMs ? "within" : "out",
     });
-    
-    return actualResolutionMs <= expectedResolutionMs ? 'within' : 'out';
+
+    return actualResolutionMs <= expectedResolutionMs ? "within" : "out";
   }
 
   /**
@@ -914,38 +1168,46 @@ alarmType: report.alarmType,
       // Get the outage report before update
       const existingReport = await OutageReport.findById(id);
       if (!existingReport) {
-        throw new Error('Outage report not found');
+        throw new Error("Outage report not found");
       }
 
       // Check if this is a status update to Resolved or Closed
-      const isNewlyResolved = ['Resolved', 'Closed'].includes(updateData.status) && 
-                             !['Resolved', 'Closed'].includes(existingReport.status);
-      
+      const isNewlyResolved =
+        ["Resolved", "Closed"].includes(updateData.status) &&
+        !["Resolved", "Closed"].includes(existingReport.status);
+
       if (isNewlyResolved) {
-        console.log('🔍 Processing resolution for report:', {
+        console.log("🔍 Processing resolution for report:", {
           reportId: id,
           currentStatus: existingReport.status,
           newStatus: updateData.status,
-          updateData: JSON.stringify(updateData, null, 2)
+          updateData: JSON.stringify(updateData, null, 2),
         });
 
         // Ensure resolution time is set (default to now if not provided)
         if (!updateData.resolutionTime) {
           updateData.resolutionTime = new Date();
-          console.log(`⏰ Set default resolution time: ${updateData.resolutionTime}`);
+          console.log(
+            `⏰ Set default resolution time: ${updateData.resolutionTime}`
+          );
         }
 
         // Ensure expected resolution hours are set based on alarm type if not provided
-        if (!updateData.expectedResolutionHours && !existingReport.expectedResolutionHours) {
+        if (
+          !updateData.expectedResolutionHours &&
+          !existingReport.expectedResolutionHours
+        ) {
           const slaThresholds = {
-            critical: 4,   // 4 hours for critical
-            major: 8,      // 8 hours for major
-            minor: 24      // 24 hours for minor
+            critical: 4, // 4 hours for critical
+            major: 8, // 8 hours for major
+            minor: 24, // 24 hours for minor
           };
-          
-          const alarmType = (existingReport.alarmType || '').toLowerCase();
+
+          const alarmType = (existingReport.alarmType || "").toLowerCase();
           updateData.expectedResolutionHours = slaThresholds[alarmType] || 24;
-          console.log(`⏱️  Set default expected resolution hours: ${updateData.expectedResolutionHours} (based on alarm type: ${alarmType})`);
+          console.log(
+            `⏱️  Set default expected resolution hours: ${updateData.expectedResolutionHours} (based on alarm type: ${alarmType})`
+          );
         }
 
         // Preserve mandatoryRestorationTime on resolution. Do not auto-clear.
@@ -953,69 +1215,88 @@ alarmType: report.alarmType,
 
         // Calculate SLA status
         try {
-          const resolutionTime = updateData.resolutionTime || existingReport.resolutionTime;
-          const expectedHours = updateData.expectedResolutionHours || existingReport.expectedResolutionHours;
-          
-          if (existingReport.occurrenceTime && resolutionTime && expectedHours) {
+          const resolutionTime =
+            updateData.resolutionTime || existingReport.resolutionTime;
+          const expectedHours =
+            updateData.expectedResolutionHours ||
+            existingReport.expectedResolutionHours;
+
+          if (
+            existingReport.occurrenceTime &&
+            resolutionTime &&
+            expectedHours
+          ) {
             updateData.slaStatus = this.calculateSlaStatus(
               existingReport.occurrenceTime,
               resolutionTime,
               expectedHours
             );
-            console.log(`📊 SLA Status calculated: ${updateData.slaStatus} for report ${id}`);
+            console.log(
+              `📊 SLA Status calculated: ${updateData.slaStatus} for report ${id}`
+            );
           } else {
-            console.warn('⚠️  Missing data for SLA calculation:', {
+            console.warn("⚠️  Missing data for SLA calculation:", {
               hasOccurrenceTime: !!existingReport.occurrenceTime,
               hasResolutionTime: !!resolutionTime,
-              hasExpectedHours: !!expectedHours
+              hasExpectedHours: !!expectedHours,
             });
           }
         } catch (slaError) {
-          console.error('❌ Error calculating SLA status:', slaError);
+          console.error("❌ Error calculating SLA status:", slaError);
         }
       }
 
       const update = {
         ...updateData,
         updatedBy: userId,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       };
 
       const updatedReport = await OutageReport.findByIdAndUpdate(id, update, {
         new: true,
-        runValidators: true
+        runValidators: true,
       });
 
       // If status is changed to "Closed", close associated ticket
-      if (updateData.status === 'Closed' && existingReport.status !== 'Closed') {
+      if (
+        updateData.status === "Closed" &&
+        existingReport.status !== "Closed"
+      ) {
         console.log(`🔒 Outage ${id} closed - closing associated ticket...`);
-        
+
         try {
           // Close the ticket associated with this outage's alarm
           if (existingReport.alarmId) {
-            const Ticket = (await import('../models/Ticket.js')).default;
-            
-            const ticket = await Ticket.findOne({ alarmId: existingReport.alarmId });
-            if (ticket && ticket.status !== 'Closed') {
-              ticket.status = 'Closed';
+            const Ticket = (await import("../models/Ticket.js")).default;
+
+            const ticket = await Ticket.findOne({
+              alarmId: existingReport.alarmId,
+            });
+            if (ticket && ticket.status !== "Closed") {
+              ticket.status = "Closed";
               ticket.closedBy = userId;
               ticket.closedAt = new Date();
               ticket.updatedBy = userId;
               ticket.updatedAt = new Date();
               await ticket.save();
-              
-              console.log(`✅ Ticket ${ticket._id} automatically closed with outage ${id}`);
+
+              console.log(
+                `✅ Ticket ${ticket._id} automatically closed with outage ${id}`
+              );
             }
           }
         } catch (ticketError) {
-          console.error('⚠️  Error closing associated ticket:', ticketError.message);
+          console.error(
+            "⚠️  Error closing associated ticket:",
+            ticketError.message
+          );
           // Don't fail the outage update if ticket closure fails
         }
       }
 
       return updatedReport;
     } catch (error) {
-      console.error('Error updating outage report:', error);
+      console.error("Error updating outage report:", error);
       throw error;
     }
   }

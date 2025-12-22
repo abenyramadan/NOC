@@ -1,8 +1,9 @@
-import express from 'express';
-import { body, validationResult } from 'express-validator';
-import { authenticate, authorize } from '../middleware/auth.js';
-import Alarm from '../models/Alarm.js';
-import { emailService } from '../services/emailService.js';
+import express from "express";
+import { body, validationResult } from "express-validator";
+import { authenticate, authorize } from "../middleware/auth.js";
+import Alarm from "../models/Alarm.js";
+import { getEmailService } from "../services/emailService.js";
+import EmailConfig from "../models/EmailConfig.js";
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ const router = express.Router();
  * @desc Get all alarms with optional filters
  * @access Private
  */
-router.get('/', authenticate, async (req, res) => {
+router.get("/", authenticate, async (req, res) => {
   try {
     const {
       severity,
@@ -20,33 +21,58 @@ router.get('/', authenticate, async (req, res) => {
       siteName,
       alarmType,
       search,
+      startDate,
+      endDate,
       page = 1,
       limit = 50,
-      sortBy = 'timestamp',
-      sortOrder = 'desc'
+      sortBy = "timestamp",
+      sortOrder = "desc",
     } = req.query;
 
     let query = {};
 
     // Apply filters
-    if (severity && severity !== 'all') query.severity = severity;
-    if (status && status !== 'all') query.status = status;
-    if (siteId) query.siteId = new RegExp(siteId, 'i');
-    if (siteName) query.siteName = new RegExp(siteName, 'i');
-    if (alarmType && alarmType !== 'all') query.alarmType = alarmType;
+    if (severity && severity !== "all") query.severity = severity;
+    if (status && status !== "all") query.status = status;
+    if (siteId) query.siteId = new RegExp(siteId, "i");
+    if (siteName) query.siteName = new RegExp(siteName, "i");
+    if (alarmType && alarmType !== "all") query.alarmType = alarmType;
 
     // Text search across description and source
     if (search) {
       query.$or = [
-        { description: new RegExp(search, 'i') },
-        { source: new RegExp(search, 'i') },
-        { siteName: new RegExp(search, 'i') }
+        { description: new RegExp(search, "i") },
+        { source: new RegExp(search, "i") },
+        { siteName: new RegExp(search, "i") },
       ];
+    }
+
+    // Date range filters – use resolvedAt when explicitly asking for resolved alarms,
+    // otherwise fall back to timestamp so historical queries still work.
+    const dateFilters = {};
+    if (startDate) {
+      const start = new Date(startDate);
+      if (!isNaN(start.getTime())) dateFilters.$gte = start;
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      if (!isNaN(end.getTime())) dateFilters.$lt = end;
+    }
+    if (Object.keys(dateFilters).length) {
+      const dateField = status === "resolved" ? "resolvedAt" : "timestamp";
+      query[dateField] = dateFilters;
+      console.log("[AlarmsAPI] Applying date filter", {
+        field: dateField,
+        startDate,
+        endDate,
+        parsed: dateFilters,
+        status,
+      });
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const sortOptions = {};
-    sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
+    sortOptions[sortBy] = sortOrder === "asc" ? 1 : -1;
 
     const alarms = await Alarm.find(query)
       .sort(sortOptions)
@@ -55,18 +81,27 @@ router.get('/', authenticate, async (req, res) => {
 
     const total = await Alarm.countDocuments(query);
 
+    console.log("[AlarmsAPI] Query result", {
+      total,
+      returned: alarms.length,
+      status,
+      severity,
+      startDate,
+      endDate,
+    });
+
     res.json({
       alarms,
       pagination: {
         current: parseInt(page),
         total: Math.ceil(total / parseInt(limit)),
         count: alarms.length,
-        totalAlarms: total
-      }
+        totalAlarms: total,
+      },
     });
   } catch (error) {
-    console.error('Error fetching alarms:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    console.error("Error fetching alarms:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
 
@@ -75,16 +110,16 @@ router.get('/', authenticate, async (req, res) => {
  * @desc Get single alarm by ID
  * @access Private
  */
-router.get('/:id', authenticate, async (req, res) => {
+router.get("/:id", authenticate, async (req, res) => {
   try {
     const alarm = await Alarm.findById(req.params.id);
     if (!alarm) {
-      return res.status(404).json({ message: 'Alarm not found' });
+      return res.status(404).json({ message: "Alarm not found" });
     }
     res.json({ alarm });
   } catch (error) {
-    console.error('Error fetching alarm:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    console.error("Error fetching alarm:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
 
@@ -93,161 +128,205 @@ router.get('/:id', authenticate, async (req, res) => {
  * @desc Create new alarm (admin only)
  * @access Private (Admin)
  */
-router.post('/', authenticate, authorize('admin'), [
-  body('siteId').trim().notEmpty().withMessage('Site ID is required'),
-  body('siteName').trim().notEmpty().withMessage('Site name is required'),
-  body('severity').isIn(['critical', 'major', 'minor']).withMessage('Valid severity is required'),
-  body('alarmType').trim().notEmpty().withMessage('Alarm type is required'),
-  body('description').trim().notEmpty().withMessage('Description is required'),
-  body('source').trim().notEmpty().withMessage('Source is required')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
-    const alarmData = {
-      ...req.body,
-      status: 'active',
-      timestamp: new Date()
-    };
-
-    const alarm = new Alarm(alarmData);
-    await alarm.save();
-
-    // Send email notification for new alarm
+router.post(
+  "/",
+  authenticate,
+  authorize("admin"),
+  [
+    body("siteId").trim().notEmpty().withMessage("Site ID is required"),
+    body("siteName").trim().notEmpty().withMessage("Site name is required"),
+    body("severity")
+      .isIn(["critical", "major", "minor"])
+      .withMessage("Valid severity is required"),
+    body("alarmType").trim().notEmpty().withMessage("Alarm type is required"),
+    body("description")
+      .trim()
+      .notEmpty()
+      .withMessage("Description is required"),
+    body("source").trim().notEmpty().withMessage("Source is required"),
+  ],
+  async (req, res) => {
     try {
-      const recipients = process.env.NOC_ALERTS_EMAIL ? process.env.NOC_ALERTS_EMAIL.split(',') : [];
-      if (recipients.length > 0) {
-        await emailService.sendAlarmNotification({
-          alarmId: alarm._id,
-          siteName: alarm.siteName,
-          siteId: alarm.siteId,
-          severity: alarm.severity,
-          alarmType: alarm.alarmType,
-          description: alarm.description,
-          source: alarm.source,
-          timestamp: alarm.timestamp,
-          recipients: recipients
-        }, req.user.id); // Pass user ID for ticket creation
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        });
       }
-    } catch (emailError) {
-      console.error('Failed to send alarm notification email:', emailError);
-      // Don't fail the alarm creation if email fails
-    }
 
-    res.status(201).json({
-      message: 'Alarm created successfully',
-      alarm
-    });
-  } catch (error) {
-    console.error('Error creating alarm:', error);
-    if (error.code === 11000) {
-      res.status(400).json({ message: 'Alarm already exists' });
-    } else {
-      res.status(500).json({ message: 'Internal server error' });
+      const alarmData = {
+        ...req.body,
+        status: "active",
+        timestamp: new Date(),
+      };
+
+      const alarm = new Alarm(alarmData);
+      await alarm.save();
+
+      // Send email notification for new alarm
+      try {
+        // Fetch recipients from EmailConfig in DB
+        const config = await EmailConfig.getConfig();
+        const recipients = Array.isArray(config.immediateAlerts)
+          ? config.immediateAlerts
+          : [];
+        if (recipients.length > 0) {
+          const emailService = await getEmailService();
+          await emailService.sendAlarmNotification(
+            {
+              alarmId: alarm._id,
+              siteName: alarm.siteName,
+              siteId: alarm.siteId,
+              severity: alarm.severity,
+              alarmType: alarm.alarmType,
+              description: alarm.description,
+              source: alarm.source,
+              timestamp: alarm.timestamp,
+              recipients: recipients,
+            },
+            req.user.id
+          ); // Pass user ID for ticket creation
+        } else {
+          console.warn(
+            "No immediate alert recipients configured in EmailConfig. No email sent."
+          );
+        }
+      } catch (emailError) {
+        console.error("Failed to send alarm notification email:", emailError);
+        // Don't fail the alarm creation if email fails
+      }
+
+      res.status(201).json({
+        message: "Alarm created successfully",
+        alarm,
+      });
+    } catch (error) {
+      console.error("Error creating alarm:", error);
+      if (error.code === 11000) {
+        res.status(400).json({ message: "Alarm already exists" });
+      } else {
+        res.status(500).json({ message: "Internal server error" });
+      }
     }
   }
-});
+);
 
 /**
  * @route PUT /api/alarms/:id
  * @desc Update alarm (admin only)
  * @access Private (Admin)
  */
-router.put('/:id', authenticate, authorize('admin'), [
-  body('status').optional().isIn(['active', 'acknowledged', 'resolved']).withMessage('Valid status is required'),
-  body('acknowledgedBy').optional().trim(),
-  body('acknowledgedAt').optional().isISO8601().withMessage('Valid timestamp is required'),
-  body('resolvedAt').optional().isISO8601().withMessage('Valid timestamp is required')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
-    const { id } = req.params;
-    const updates = req.body;
-
-    // Handle status changes
-    if (updates.status === 'acknowledged') {
-      updates.acknowledgedAt = new Date();
-      if (!updates.acknowledgedBy) {
-        updates.acknowledgedBy = req.user?.username || 'system';
+router.put(
+  "/:id",
+  authenticate,
+  authorize("admin"),
+  [
+    body("status")
+      .optional()
+      .isIn(["active", "acknowledged", "resolved"])
+      .withMessage("Valid status is required"),
+    body("acknowledgedBy").optional().trim(),
+    body("acknowledgedAt")
+      .optional()
+      .isISO8601()
+      .withMessage("Valid timestamp is required"),
+    body("resolvedAt")
+      .optional()
+      .isISO8601()
+      .withMessage("Valid timestamp is required"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        });
       }
-    } else if (updates.status === 'resolved') {
-      updates.resolvedAt = new Date();
-    }
 
-    const alarm = await Alarm.findByIdAndUpdate(
-      id,
-      { ...updates, updatedAt: new Date() },
-      { new: true, runValidators: true }
-    );
+      const { id } = req.params;
+      const updates = req.body;
 
-    if (!alarm) {
-      return res.status(404).json({ message: 'Alarm not found' });
-    }
-
-    // Send email notification if alarm was resolved
-    if (updates.status === 'resolved' && alarm.status === 'resolved') {
-      try {
-        const recipients = process.env.NOC_ALERTS_EMAIL ? process.env.NOC_ALERTS_EMAIL.split(',') : [];
-        if (recipients.length > 0) {
-          await emailService.sendAlarmResolvedNotification({
-            siteName: alarm.siteName,
-            siteId: alarm.siteId,
-            severity: alarm.severity,
-            alarmType: alarm.alarmType,
-            description: alarm.description,
-            source: alarm.source,
-            timestamp: alarm.timestamp,
-            recipients: recipients
-          });
+      // Handle status changes
+      if (updates.status === "acknowledged") {
+        updates.acknowledgedAt = new Date();
+        if (!updates.acknowledgedBy) {
+          updates.acknowledgedBy = req.user?.username || "system";
         }
-      } catch (emailError) {
-        console.error('Failed to send alarm resolution notification email:', emailError);
-        // Don't fail the alarm update if email fails
+      } else if (updates.status === "resolved") {
+        updates.resolvedAt = new Date();
       }
-    }
 
-    res.json({
-      message: 'Alarm updated successfully',
-      alarm
-    });
-  } catch (error) {
-    console.error('Error updating alarm:', error);
-    res.status(500).json({ message: 'Internal server error' });
+      const alarm = await Alarm.findByIdAndUpdate(
+        id,
+        { ...updates, updatedAt: new Date() },
+        { new: true, runValidators: true }
+      );
+
+      if (!alarm) {
+        return res.status(404).json({ message: "Alarm not found" });
+      }
+
+      // Send email notification if alarm was resolved
+      if (updates.status === "resolved" && alarm.status === "resolved") {
+        try {
+          const recipients = process.env.NOC_ALERTS_EMAIL
+            ? process.env.NOC_ALERTS_EMAIL.split(",")
+            : [];
+          if (recipients.length > 0) {
+            const emailService = await getEmailService();
+            await emailService.sendAlarmResolvedNotification({
+              siteName: alarm.siteName,
+              siteId: alarm.siteId,
+              severity: alarm.severity,
+              alarmType: alarm.alarmType,
+              description: alarm.description,
+              source: alarm.source,
+              timestamp: alarm.timestamp,
+              recipients: recipients,
+            });
+          }
+        } catch (emailError) {
+          console.error(
+            "Failed to send alarm resolution notification email:",
+            emailError
+          );
+          // Don't fail the alarm update if email fails
+        }
+      }
+
+      res.json({
+        message: "Alarm updated successfully",
+        alarm,
+      });
+    } catch (error) {
+      console.error("Error updating alarm:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
   }
-});
+);
 
 /**
  * @route DELETE /api/alarms/:id
  * @desc Delete alarm (admin only)
  * @access Private (Admin)
  */
-router.delete('/:id', authenticate, authorize('admin'), async (req, res) => {
+router.delete("/:id", authenticate, authorize("admin"), async (req, res) => {
   try {
     const { id } = req.params;
 
     const alarm = await Alarm.findByIdAndDelete(id);
 
     if (!alarm) {
-      return res.status(404).json({ message: 'Alarm not found' });
+      return res.status(404).json({ message: "Alarm not found" });
     }
 
-    res.json({ message: 'Alarm deleted successfully' });
+    res.json({ message: "Alarm deleted successfully" });
   } catch (error) {
-    console.error('Error deleting alarm:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    console.error("Error deleting alarm:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
 
@@ -256,7 +335,7 @@ router.delete('/:id', authenticate, authorize('admin'), async (req, res) => {
  * @desc Get alarms statistics
  * @access Private
  */
-router.get('/stats/summary', authenticate, async (req, res) => {
+router.get("/stats/summary", authenticate, async (req, res) => {
   try {
     const stats = await Alarm.aggregate([
       {
@@ -264,37 +343,37 @@ router.get('/stats/summary', authenticate, async (req, res) => {
           _id: null,
           totalAlarms: { $sum: 1 },
           activeAlarms: {
-            $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] }
+            $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] },
           },
           acknowledgedAlarms: {
-            $sum: { $cond: [{ $eq: ['$status', 'acknowledged'] }, 1, 0] }
+            $sum: { $cond: [{ $eq: ["$status", "acknowledged"] }, 1, 0] },
           },
           resolvedAlarms: {
-            $sum: { $cond: [{ $eq: ['$status', 'resolved'] }, 1, 0] }
+            $sum: { $cond: [{ $eq: ["$status", "resolved"] }, 1, 0] },
           },
           criticalAlarms: {
-            $sum: { $cond: [{ $eq: ['$severity', 'critical'] }, 1, 0] }
+            $sum: { $cond: [{ $eq: ["$severity", "critical"] }, 1, 0] },
           },
           majorAlarms: {
-            $sum: { $cond: [{ $eq: ['$severity', 'major'] }, 1, 0] }
+            $sum: { $cond: [{ $eq: ["$severity", "major"] }, 1, 0] },
           },
           minorAlarms: {
-            $sum: { $cond: [{ $eq: ['$severity', 'minor'] }, 1, 0] }
-          }
-        }
-      }
+            $sum: { $cond: [{ $eq: ["$severity", "minor"] }, 1, 0] },
+          },
+        },
+      },
     ]);
 
     const bySite = await Alarm.aggregate([
       {
         $group: {
-          _id: '$siteId',
+          _id: "$siteId",
           count: { $sum: 1 },
-          siteName: { $first: '$siteName' }
-        }
+          siteName: { $first: "$siteName" },
+        },
       },
       { $sort: { count: -1 } },
-      { $limit: 10 }
+      { $limit: 10 },
     ]);
 
     res.json({
@@ -305,13 +384,13 @@ router.get('/stats/summary', authenticate, async (req, res) => {
         resolvedAlarms: 0,
         criticalAlarms: 0,
         majorAlarms: 0,
-        minorAlarms: 0
+        minorAlarms: 0,
       },
-      bySite: bySite
+      bySite: bySite,
     });
   } catch (error) {
-    console.error('Error fetching alarm stats:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    console.error("Error fetching alarm stats:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
 

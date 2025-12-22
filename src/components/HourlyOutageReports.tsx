@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Clock, TrendingUp, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { outageReportService } from '../services/outageReportService';
+import { siteRegionService } from '../services/siteRegionService';
 
 const calculateSlaStatus = (outage: OutageItem): 'within' | 'out' | 'unknown' => {
   // 1. Use stored SLA if already resolved and saved
@@ -238,6 +239,34 @@ export const HourlyOutageReports: React.FC = () => {
         })) || []
       };
       
+      // Include resolved MAE alarms from the central Alarm collection
+      const utcStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate(), 0, 0, 0, 0));
+      const utcEnd = new Date(utcStart.getTime() + 24 * 60 * 60 * 1000);
+      const resolvedUrl = `${import.meta.env.VITE_API_URL}/api/alarms?status=resolved&startDate=${utcStart.toISOString()}&endDate=${utcEnd.toISOString()}&limit=1000`;
+      console.log('🛰️ Hourly: Fetching resolved alarms', { resolvedUrl, utcStart, utcEnd });
+      const resolvedAlarmsResponse = await fetch(resolvedUrl);
+      let resolvedAlarms: any[] = [];
+      if (resolvedAlarmsResponse.ok) {
+        const alarmsData = await resolvedAlarmsResponse.json();
+        const beforeFilter = alarmsData.alarms?.length || 0;
+        resolvedAlarms = (alarmsData.alarms || []).filter((a: any) => a.resolvedAt && new Date(a.resolvedAt) >= utcStart && new Date(a.resolvedAt) < utcEnd);
+        console.log('✅ Hourly: Resolved alarms fetch', {
+          httpStatus: resolvedAlarmsResponse.status,
+          totalFromApi: beforeFilter,
+          filteredForDay: resolvedAlarms.length,
+          sample: resolvedAlarms.slice(0, 3).map((a) => ({
+            id: a._id,
+            resolvedAt: a.resolvedAt,
+            description: a.description
+          }))
+        });
+      } else {
+        console.warn('⚠️ Hourly: Failed to fetch resolved alarms', {
+          status: resolvedAlarmsResponse.status,
+          statusText: resolvedAlarmsResponse.statusText
+        });
+      }
+
       // Since reports must include carry-overs, ensure we explicitly include unresolved from before today (use UTC boundaries)
       const now = new Date();
       const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
@@ -252,22 +281,81 @@ export const HourlyOutageReports: React.FC = () => {
       try {
         const carryFetch = await outageReportService.getOutageReports({
           endDate: todayStart.toISOString(),
-          status: 'In Progress',
-          sortBy: 'occurrenceTime',
-          sortOrder: 'asc',
-          limit: 1000,
+          status: 'all',
+          page: 1,
+          limit: 1000
         });
-        // Merge unique by id
-        const byId: Record<string, any> = {};
-        [...carryOverOutages, ...carryFetch.reports].forEach((o: any) => {
-          if (o && (o.id || o._id)) byId[o.id || o._id] = o;
-        });
-        carryOverOutages = Object.values(byId);
+        const unresolvedBeforeToday = carryFetch.reports.filter((r: any) => ['In Progress', 'Open'].includes(r.status));
+        carryOverOutages = [...new Map([...carryOverOutages, ...unresolvedBeforeToday].map((o: any) => [o.id || o._id, o])).values()];
       } catch (e) {
-        console.warn('Optional carry-over fetch failed, continuing with API payload only');
+        console.warn('Failed to enrich carry-over outages:', e);
       }
 
-      // Today's ongoing outages (occurred today)
+      // Pre-fetch site regions for all unique site IDs from MAE alarms
+      const maeSiteIds = [...new Set(resolvedAlarms.map((a: any) => a.siteId))];
+      console.log('Fetching regions for MAE site IDs:', maeSiteIds);
+      
+      // Pre-fetch all regions first
+      await siteRegionService.fetchSiteRegionMap();
+
+      // Process MAE alarms with region lookup
+      const processedMaeAlarms = await Promise.all(resolvedAlarms.map(async (a: any) => {
+        // Ensure we have a valid site ID
+        const siteId = a.siteId?.trim();
+        if (!siteId) {
+          console.warn('Missing siteId in MAE alarm:', a);
+          return null;
+        }
+        
+        const region = await siteRegionService.getSiteRegion(siteId);
+        console.log(`Region for site ${siteId}:`, region);
+        
+        return {
+          id: a._id,
+          siteNo: siteId,
+          siteCode: a.siteName || siteId,
+          region: region,
+          alarmType: a.alarmType?.replace('MAE_', '') || 'INFO',
+          occurrenceTime: a.timestamp,
+          supervisor: 'N/A',
+          rootCause: 'Others' as any,
+          subrootCause: '',
+          username: 'MAE Stream',
+          resolutionTime: a.resolvedAt,
+          expectedRestorationTime: undefined,
+          mandatoryRestorationTime: a.resolvedAt || new Date(),
+          status: 'Resolved' as const,
+          createdAt: a.timestamp,
+          updatedAt: a.resolvedAt || a.timestamp,
+          reportHour: a.timestamp,
+          isEmailSent: false,
+          emailSentAt: undefined,
+          slaStatus: 'within' as const,
+          expectedResolutionHours: undefined,
+          // Include MAE-specific fields for richer display
+          alarmName: a.alarmName,
+          category: a.category,
+          neType: a.neType,
+          neName: a.neName,
+          description: a.description
+        };
+      }));
+
+      // Filter out any null entries from processedMaeAlarms
+      const validMaeAlarms = processedMaeAlarms.filter(Boolean);
+      console.log(`Processed ${validMaeAlarms.length} valid MAE alarms`);
+      
+      // Deduplicate by ID across all sources
+      const deduped = new Map();
+      [
+        ...validMaeAlarms,
+        ...processedData.ongoingOutages,
+        ...(processedData.resolvedOutages || []),
+        ...carryOverOutages,
+      ].forEach((o: any) => {
+        const k = (o && (o.id || o._id)) || undefined;
+        if (k) deduped.set(k, o);
+      });
       const todaysOngoingOutages = processedData.ongoingOutages.filter((outage: any) => 
         new Date(outage.occurrenceTime) >= todayStart
       );

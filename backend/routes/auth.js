@@ -1,7 +1,7 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User.js';
-import { generateToken, authenticate, authorize } from '../middleware/auth.js';
+import { generateToken, authenticate, authorize, requirePasswordChange } from '../middleware/auth.js';
 import mongoose from 'mongoose';
 import { logAudit } from '../services/auditLogger.js';
 
@@ -117,6 +117,7 @@ router.post('/login', [
     res.json({
       message: 'Login successful',
       token,
+      mustChangePassword: user.mustChangePassword,
       user: {
         id: user._id,
         name: user.name,
@@ -137,11 +138,95 @@ router.post('/login', [
 });
 
 /**
+ * @route POST /api/auth/change-password
+ * @desc Change user password
+ * @access Private
+ */
+router.post('/change-password', authenticate, [
+  body('currentPassword')
+    .notEmpty()
+    .withMessage('Current password is required'),
+  body('newPassword')
+    .isLength({ min: 6 })
+    .withMessage('New password must be at least 6 characters long')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('New password must contain at least one uppercase letter, one lowercase letter, and one number'),
+  body('confirmPassword')
+    .custom((value, { req }) => {
+      if (value !== req.body.newPassword) {
+        throw new Error('Password confirmation does not match');
+      }
+      return true;
+    })
+], async (req, res) => {
+  try {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+
+    // Get user with password
+    const user = await User.findById(req.user._id).select('+password');
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await user.comparePassword(currentPassword);
+    if (!isCurrentPasswordValid) {
+      await logAudit(req, {
+        action: 'auth:password_change',
+        target: user._id.toString(),
+        details: 'Current password verification failed',
+        status: 'failed'
+      });
+      return res.status(400).json({ message: 'Current password is incorrect' });
+    }
+
+    // Check if new password is same as current password
+    const isSamePassword = await user.comparePassword(newPassword);
+    if (isSamePassword) {
+      return res.status(400).json({ message: 'New password must be different from current password' });
+    }
+
+    // Update password and related fields
+    user.password = newPassword;
+    user.mustChangePassword = false;
+    user.passwordChangedAt = new Date();
+    await user.save();
+
+    // Log the successful password change
+    await logAudit(req, {
+      action: 'auth:password_change',
+      target: user._id.toString(),
+      details: 'Password changed successfully',
+      status: 'success'
+    });
+
+    res.json({
+      message: 'Password changed successfully',
+      mustChangePassword: false
+    });
+
+  } catch (error) {
+    console.error('Error changing password:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+/**
  * @route GET /api/auth/me
  * @desc Get current user
  * @access Private
  */
-router.get('/me', authenticate, (req, res) => {
+router.get('/me', authenticate, requirePasswordChange, (req, res) => {
   res.json({
     user: {
       id: req.user._id,
@@ -232,7 +317,8 @@ router.post('/users', authenticate, authorize('admin'), [
       email,
       password,
       role,
-      isActive: true
+      isActive: true,
+      mustChangePassword: true // Force password change on first login
     });
 
     await newUser.save();

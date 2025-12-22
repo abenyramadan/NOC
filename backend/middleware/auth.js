@@ -108,6 +108,39 @@ export const hasAnyRole = (...roles) => {
 };
 
 /**
+ * Middleware to require password change
+ * Blocks access if user must change password, except for change-password endpoint
+ */
+export const requirePasswordChange = async (req, res, next) => {
+  try {
+    // Skip password change check for the change-password endpoint itself
+    if (req.path === '/change-password' && req.method === 'POST') {
+      return next();
+    }
+
+    // Get fresh user data to check mustChangePassword status
+    const user = await User.findById(req.user._id);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (user.mustChangePassword) {
+      return res.status(423).json({ 
+        message: 'Password change required',
+        mustChangePassword: true,
+        redirectTo: '/change-password'
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Error in requirePasswordChange middleware:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+/**
  * Role hierarchy and permissions
  */
 export const ROLE_PERMISSIONS = {

@@ -84,7 +84,7 @@ const Login: React.FC = () => {
                 {user.username.charAt(0).toUpperCase()}
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold text-foreground">{user.name || user.username}</h3>
+                <h3 className="text-lg font-semibold text-foreground">{user.username}</h3>
                 <p className="text-sm text-muted-foreground">{user.email}</p>
               </div>
             </div>

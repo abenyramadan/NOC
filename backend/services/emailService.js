@@ -1,423 +1,379 @@
-import nodemailer from 'nodemailer';
-import Ticket from '../models/Ticket.js';
+import nodemailer from "nodemailer";
+import Ticket from "../models/Ticket.js";
+import EmailConfig from "../models/EmailConfig.js";
 
 class EmailService {
   constructor() {
-    console.log('🔧 Creating Email Service instance...');
+    console.log("🔧 Creating Email Service instance...");
     this.transporter = null;
     this.isConfigured = false;
-    // Don't initialize in constructor
+    this.smtpUser = null;
+    this.smtpPass = null;
+    this.smtpHost = null;
+    this.smtpPort = null;
+    this.smtpSecure = null;
+    this.fromEmail = null;
+    this.recipients = {
+      dailyReports: [],
+      hourlyReports: [],
+      immediateAlerts: []
+    };
   }
 
-  init() {
-    try {
-      // Debug log all environment variables
-      console.log('🔍 Environment variables in email service:');
-      console.log('   - SMTP_HOST:', process.env.SMTP_HOST || 'Not set (using Gmail service)');
-      console.log('   - SMTP_PORT:', process.env.SMTP_PORT || 'Not set (using Gmail service)');
-      console.log('   - SMTP_USER:', process.env.SMTP_USER ? 'Set' : 'NOT SET');
-      console.log('   - SMTP_PASS:', process.env.SMTP_PASS ? 'Set (' + process.env.SMTP_PASS.length + ' chars)' : 'NOT SET');
-      console.log('   - FROM_EMAIL:', process.env.FROM_EMAIL || 'NOT SET');
-      console.log('   - NOC_ALERTS_EMAIL:', process.env.NOC_ALERTS_EMAIL || 'NOT SET');
+  async refreshConfig() {
+    const configDoc = await EmailConfig.getConfig().catch(() => null);
 
-      // Check all required environment variables
-      const requiredEnvVars = ['SMTP_USER', 'SMTP_PASS', 'FROM_EMAIL'];
-      const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
-      
-      if (missingVars.length > 0) {
-        console.warn('⚠️ Missing required environment variables:', missingVars);
+    if (configDoc) {
+      this.recipients = {
+        dailyReports: configDoc?.dailyReports || [],
+        hourlyReports: configDoc?.hourlyReports || [],
+        immediateAlerts: configDoc?.immediateAlerts || []
+      };
+
+      const nextSmtpUser = configDoc?.smtpUser || process.env.SMTP_USER;
+      const nextSmtpPass = configDoc?.smtpPass || process.env.SMTP_PASS;
+      const nextFromEmail = configDoc?.fromEmail || process.env.FROM_EMAIL || 'noc@example.com';
+
+      const nextSmtpHost = configDoc?.smtpHost || process.env.SMTP_HOST || 'smtp.gmail.com';
+      const nextSmtpPort = configDoc?.smtpPort || parseInt(process.env.SMTP_PORT || '587', 10);
+      const nextSmtpSecure =
+        typeof configDoc?.smtpSecure === 'boolean'
+          ? configDoc.smtpSecure
+          : process.env.SMTP_SECURE === 'true';
+
+      const connChanged =
+        nextSmtpUser !== this.smtpUser ||
+        nextSmtpPass !== this.smtpPass ||
+        nextSmtpHost !== this.smtpHost ||
+        nextSmtpPort !== this.smtpPort ||
+        nextSmtpSecure !== this.smtpSecure;
+
+      this.smtpUser = nextSmtpUser;
+      this.smtpPass = nextSmtpPass;
+      this.smtpHost = nextSmtpHost;
+      this.smtpPort = nextSmtpPort;
+      this.smtpSecure = nextSmtpSecure;
+      this.fromEmail = nextFromEmail;
+
+      this.isConfigured = !!(this.smtpUser && this.smtpPass && this.fromEmail);
+
+      if (!this.isConfigured) {
+        this.transporter = null;
         return;
       }
 
-      console.log('✅ All required email environment variables are present');
-      console.log('🔧 Creating Nodemailer transporter...');
+      if (!this.transporter || connChanged) {
+        this.transporter = nodemailer.createTransport({
+          host: this.smtpHost,
+          port: this.smtpPort,
+          secure: this.smtpSecure,
+          auth: {
+            user: this.smtpUser,
+            pass: this.smtpPass
+          },
+          pool: true,
+          maxConnections: 5,
+          maxMessages: 100,
+          rateDelta: 1000,
+          rateLimit: 5
+        });
+      }
+    }
+  }
 
-      // Use Gmail service which handles configuration automatically
-      const config = {
-        service: 'gmail',
+  async init() {
+    try {
+      // Always try to get config from database first
+      const configDoc = await EmailConfig.getConfig().catch(() => null);
+      
+      // Initialize recipients from database regardless of SMTP config completeness
+      this.recipients = {
+        dailyReports: configDoc?.dailyReports || [],
+        hourlyReports: configDoc?.hourlyReports || [],
+        immediateAlerts: configDoc?.immediateAlerts || []
+      };
+      
+      if (configDoc?.smtpUser && configDoc?.smtpPass && configDoc?.fromEmail) {
+        // Use complete database configuration
+        this.smtpUser = configDoc.smtpUser;
+        this.smtpPass = configDoc.smtpPass;
+        this.fromEmail = configDoc.fromEmail;
+        this.smtpHost = configDoc.smtpHost || process.env.SMTP_HOST || 'smtp.gmail.com';
+        this.smtpPort = configDoc.smtpPort || parseInt(process.env.SMTP_PORT || '587', 10);
+        this.smtpSecure =
+          typeof configDoc.smtpSecure === 'boolean'
+            ? configDoc.smtpSecure
+            : process.env.SMTP_SECURE === 'true';
+        console.log("✅ Loaded complete email configuration from database");
+      } else {
+        // Fall back to environment variables for SMTP settings only
+        this.smtpUser = process.env.SMTP_USER;
+        this.smtpPass = process.env.SMTP_PASS;
+        this.fromEmail = process.env.FROM_EMAIL || 'noc@example.com';
+        this.smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+        this.smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
+        this.smtpSecure = process.env.SMTP_SECURE === 'true';
+        console.log("ℹ️ Using environment variables for SMTP settings, but keeping email recipients from database");
+      }
+
+      // Validate configuration
+      this.isConfigured = !!(this.smtpUser && this.smtpPass && this.fromEmail);
+      if (!this.isConfigured) {
+        throw new Error("Missing required SMTP configuration");
+      }
+
+      // Create transporter
+      this.transporter = nodemailer.createTransport({
+        host: this.smtpHost,
+        port: this.smtpPort,
+        secure: this.smtpSecure,
         auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS
+          user: this.smtpUser,
+          pass: this.smtpPass
         },
-        // Additional options for better reliability
         pool: true,
         maxConnections: 5,
         maxMessages: 100,
         rateDelta: 1000,
         rateLimit: 5
-      };
+      });
 
-      this.transporter = nodemailer.createTransport(config);
-      this.isConfigured = true;
-
-      // Verify connection
-      this.verifyConnection();
-
+      console.log("✅ Email service initialized successfully");
+      return this;
     } catch (error) {
-      console.error('❌ Email service initialization failed:', error.message);
+      console.error("❌ Email service initialization failed:", error.message);
       this.isConfigured = false;
-    }
-  }
-
-  async verifyConnection() {
-    if (!this.transporter) {
-      console.error('❌ Cannot verify SMTP connection: Transporter not initialized');
-      return false;
-    }
-
-    try {
-      await this.transporter.verify();
-      console.log('✅ SMTP Server is ready to take our messages');
-      return true;
-    } catch (error) {
-      console.error('❌ SMTP Connection error:', error.message);
-      
-      // Provide helpful error messages
-      if (error.code === 'EAUTH') {
-        console.error('🔐 Authentication failed. Please check:');
-        console.error('   1. Your Gmail username and password are correct');
-        console.error('   2. You have enabled 2-Step Verification');
-        console.error('   3. You are using an App Password (not your regular password)');
-        console.error('   4. The App Password is 16 characters long');
-      } else if (error.code === 'ECONNECTION') {
-        console.error('🌐 Connection failed. Please check:');
-        console.error('   1. Your internet connection');
-        console.error('   2. Firewall settings blocking port 587');
-        console.error('   3. Gmail SMTP server accessibility');
-      }
-      
-      this.isConfigured = false;
-      return false;
-    }
-  }
-
-  async sendAlarmNotification(alarmData, userId = null) {
-    // Check if email service is properly configured
-    if (!this.isConfigured || !this.transporter) {
-      console.error('❌ Email service not configured. Cannot send alarm notification.');
-      throw new Error('Email service not configured - missing or invalid SMTP credentials');
-    }
-
-    try {
-      console.log(`📧 Preparing to send email for alarm: ${alarmData.alarmId || 'unknown'}`);
-      
-      // Get recipients from alarm data or fallback to environment variable
-      let recipients = alarmData.recipients;
-      if (!recipients || recipients.length === 0) {
-        recipients = process.env.NOC_EMAILS ? process.env.NOC_EMAILS.split(',') : [];
-      }
-      
-      if (recipients.length === 0) {
-        throw new Error('No email recipients configured');
-      }
-
-      console.log(`📨 Sending email to: ${recipients.join(', ')}`);
-
-      const severityLabels = {
-        critical: 'CRITICAL',
-        major: 'MAJOR', 
-        minor: 'MINOR',
-        warning: 'WARNING'
-      };
-
-      const severity = alarmData.severity?.toLowerCase() || 'warning';
-      const severityLabel = severityLabels[severity] || '⚪ UNKNOWN';
-
-      const htmlContent = this.generateAlarmEmailHTML(alarmData, severityLabel);
-      const textContent = this.generateAlarmEmailText(alarmData, severityLabel);
-
-      const mailOptions = {
-        from: process.env.FROM_EMAIL,
-        to: recipients.join(', '),
-        subject: `${severityLabel} Alarm - ${alarmData.siteName || 'Unknown Site'}`,
-        text: textContent,
-        html: htmlContent,
-        // Add headers for better email deliverability
-        headers: {
-          'X-Priority': '1',
-          'X-MSMail-Priority': 'High',
-          'Importance': 'high'
-        }
-      };
-
-      console.log('📤 Sending email...');
-      const result = await this.transporter.sendMail(mailOptions);
-      console.log(`✅ Email sent successfully! Message ID: ${result.messageId}`);
-      console.log(`✅ Alarm notification sent to ${recipients.length} recipients`);
-
-      // Create ticket record for the email notification
-      if (alarmData.alarmId && userId) {
-        try {
-          await Ticket.create({
-            alarmId: alarmData.alarmId,
-            siteName: alarmData.siteName,
-            siteId: alarmData.siteId,
-            severity: alarmData.severity,
-            alarmType: alarmData.alarmType,
-            description: alarmData.description,
-            recipients: recipients,
-            emailSentAt: new Date(),
-            status: 'sent',
-            emailSubject: mailOptions.subject,
-            createdBy: userId,
-            messageId: result.messageId
-          });
-          console.log('✅ Ticket record created for email notification');
-        } catch (ticketError) {
-          console.error('❌ Failed to create ticket record:', ticketError.message);
-          // Don't throw - ticket creation failure shouldn't break email sending
-        }
-      }
-
-      return result;
-
-    } catch (error) {
-      console.error(`❌ Failed to send alarm notification:`, error.message);
-      
-      // Create failed ticket record
-      if (alarmData.alarmId && userId) {
-        try {
-          await Ticket.create({
-            alarmId: alarmData.alarmId,
-            siteName: alarmData.siteName,
-            siteId: alarmData.siteId,
-            severity: alarmData.severity,
-            alarmType: alarmData.alarmType,
-            description: alarmData.description,
-            recipients: alarmData.recipients || [],
-            emailSentAt: new Date(),
-            status: 'failed',
-            emailSubject: `🚨 ${(alarmData.severity || 'UNKNOWN').toUpperCase()} Alarm - ${alarmData.siteName || 'Unknown Site'}`,
-            createdBy: userId,
-            error: error.message
-          });
-        } catch (ticketError) {
-          console.error('❌ Failed to create failed ticket record:', ticketError.message);
-        }
-      }
-
       throw error;
     }
   }
 
-  generateAlarmEmailHTML(alarmData, severityLabel) {
-    const severityColors = {
-      critical: '#dc2626',
-      major: '#ea580c', 
-      minor: '#ca8a04',
-      warning: '#2563eb'
-    };
+  async sendAlarmNotification(alarm, userId = null) {
+    await this.refreshConfig();
 
-    const severity = alarmData.severity?.toLowerCase() || 'warning';
-
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NOC Alert - ${alarmData.siteName || 'Unknown Site'}</title>
-  <style>
-    /* Base */
-    body { margin: 0; padding: 0; background: #f8fafc; color: #111827; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; font-size: 16px; line-height: 1.5; }
-    .container { width: 100%; max-width: 100%; margin: 0; padding: 14px; }
-    .card { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(16,24,40,0.04); }
-    /* Header */
-    .bar { height: 3px; background: #e5e7eb; }
-    .header { padding: 12px 14px 6px 14px; }
-    .title { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: .2px; }
-    .subtle { color: #6b7280; font-size: 12px; margin-top: 2px; }
-    /* Badge */
-    .badge { display: inline-block; background: #ffffff; color: #111827; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 700; border: 1px solid #d1d5db; }
-    /* Content */
-    .section { padding: 10px 14px; }
-    .section + .section { border-top: 1px solid #f3f4f6; }
-    .kvs { width: 100%; border-collapse: collapse; }
-    .kvs td { padding: 3px 0; font-size: 14px; vertical-align: top; }
-    .kvs td.key { color: #6b7280; width: 38%; }
-    .kvs td.val { color: #111827; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color: #374151; }
-    /* Footer */
-    .footer { padding: 10px 14px; background: #f9fafb; color: #6b7280; font-size: 11px; text-align: center; }
-    /* Responsive */
-    @media (max-width: 480px) {
-      body { font-size: 16px !important; line-height: 1.5 !important; }
-      .title { font-size: 18px !important; }
-      .subtle { font-size: 13px !important; }
-      .kvs td { font-size: 14px !important; }
-      .badge { font-size: 12px !important; padding: 4px 10px !important; }
-      .section, .header, .footer { padding-left: 10px; padding-right: 10px; }
-      .kvs td.key { width: 42%; font-weight: 600 !important; }
+    if (!this.isConfigured || !this.transporter) {
+      const error = new Error("Email service not configured - missing or invalid SMTP credentials");
+      console.error("❌", error.message);
+      throw error;
     }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="card">
-      <div class="bar"></div>
-      <div class="header">
-        <div class="badge">${severityLabel}</div>
-        <h1 class="title" style="margin-top: 6px;">${alarmData.siteName || 'Unknown Site'}</h1>
-        <div class="subtle">${new Date(alarmData.timestamp).toLocaleString()}</div>
-      </div>
-      <div class="section">
-        <table class="kvs" role="presentation" cellspacing="0" cellpadding="0">
-          <tr>
-            <td class="key">Site ID</td>
-            <td class="val mono">${alarmData.siteId || 'N/A'}</td>
-          </tr>
-          <tr>
-            <td class="key">Severity</td>
-            <td class="val">${(alarmData.severity || 'N/A').toString().toUpperCase()}</td>
-          </tr>
-          <tr>
-            <td class="key">Alarm Type</td>
-            <td class="val">${alarmData.alarmType || 'N/A'}</td>
-          </tr>
-          <tr>
-            <td class="key">Description</td>
-            <td class="val">${alarmData.description || 'N/A'}</td>
-          </tr>
-          <tr>
-            <td class="key">Source</td>
-            <td class="val">${alarmData.source || 'N/A'}</td>
-          </tr>
-        </table>
-      </div>
-      <div class="footer">
-        NOC Alert • Automated notification
-      </div>
-    </div>
-  </div>
-</body>
-</html>`;
+
+    try {
+      // Get recipients in order of priority:
+      // 1. Recipients attached to the alarm
+      // 2. Immediate alerts from email service config
+      // 3. Fallback to default
+      let recipients = [];
+      
+      if (alarm.recipients && alarm.recipients.length > 0) {
+        const alarmRecipients = Array.isArray(alarm.recipients) ? alarm.recipients : [alarm.recipients];
+        const normalized = alarmRecipients.map((e) => String(e).trim().toLowerCase()).filter(Boolean);
+        const filtered = normalized.filter((e) => e !== 'noc@example.com');
+
+        if (filtered.length > 0) {
+          recipients = filtered;
+          console.log(`📨 Using recipients from alarm: ${recipients.join(', ')}`);
+        }
+      }
+
+      if (recipients.length === 0 && this.recipients?.immediateAlerts?.length > 0) {
+        recipients = this.recipients.immediateAlerts;
+        console.log(`📨 Using recipients from immediateAlerts: ${recipients.join(', ')}`);
+      }
+
+      if (recipients.length === 0) {
+        recipients = process.env.NOC_ALERTS_EMAIL?.split(',').map(e => e.trim()).filter(Boolean) || ['noc@example.com'];
+        console.log(`📨 Using default recipients: ${recipients.join(', ')}`);
+      }
+
+      // Ensure we have valid email addresses
+      recipients = recipients.filter(email => {
+        const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+        if (!isValid) {
+          console.warn(`⚠️ Invalid email address in recipients: ${email}`);
+        }
+        return isValid;
+      });
+
+      if (recipients.length === 0) {
+        console.warn('⚠️ No valid email recipients found, using default');
+        recipients = ['noc@example.com'];
+      }
+
+      const severityLabels = {
+        critical: "CRITICAL",
+        major: "MAJOR",
+        minor: "MINOR",
+        warning: "WARNING"
+      };
+
+      const severity = alarm.severity?.toLowerCase() || "warning";
+      const severityLabel = severityLabels[severity] || "UNKNOWN";
+
+      const mailOptions = {
+        from: this.fromEmail,
+        to: recipients.join(', '),
+        subject: `🚨 ${severityLabel} Alarm - ${alarm.siteName || 'Unknown Site'}`,
+        text: this.generateAlarmEmailText(alarm, severityLabel),
+        html: this.generateAlarmEmailHTML(alarm, severityLabel),
+        headers: {
+          "X-Priority": "1",
+          "X-MSMail-Priority": "High",
+          "Importance": "high"
+        }
+      };
+
+      console.log(`📤 Sending alarm notification to: ${recipients.join(', ')}`);
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Alarm notification sent successfully! Message ID: ${result.messageId}`);
+
+      // Create ticket record if alarm has an ID
+      if (alarm.id && userId) {
+        try {
+          await Ticket.create({
+            alarmId: alarm.id,
+            siteName: alarm.siteName,
+            siteId: alarm.siteId,
+            severity: alarm.severity,
+            alarmType: alarm.alarmType,
+            description: alarm.description,
+            recipients: recipients,
+            emailSentAt: new Date(),
+            status: "sent",
+            emailSubject: mailOptions.subject,
+            emailBody: mailOptions.html,
+            createdBy: userId
+          });
+        } catch (ticketError) {
+          console.error("Failed to create ticket for email notification:", ticketError);
+        }
+      }
+
+      return {
+        success: true,
+        message: "Alarm notification sent successfully",
+        messageId: result.messageId,
+        recipients: recipients
+      };
+    } catch (error) {
+      console.error("❌ Failed to send alarm notification:", error);
+      throw error;
+    }
   }
 
-  generateAlarmEmailText(alarmData, severityLabel) {
+  generateAlarmEmailText(alarm, severityLabel) {
     return `
-NOC ALERT - ${alarmData.siteName || 'Unknown Site'}
-
-SEVERITY: ${severityLabel}
-SITE: ${alarmData.siteName || 'Unknown'} ${alarmData.siteId ? `(${alarmData.siteId})` : ''}
-TYPE: ${alarmData.alarmType || 'Unknown'}
-DESCRIPTION: ${alarmData.description || 'No description provided'}
-${alarmData.source ? `SOURCE: ${alarmData.source}` : ''}
-TIMESTAMP: ${(alarmData.timestamp ? new Date(alarmData.timestamp) : new Date()).toLocaleString()}
-
-This is an automated alert from the NOC Alert System.
-Please investigate and resolve this alarm as soon as possible.
+      Alarm Type: ${alarm.alarmType || 'N/A'}
+      Site: ${alarm.siteName || 'Unknown'} (${alarm.siteId || 'N/A'})
+      Severity: ${severityLabel}
+      Description: ${alarm.description || 'No description provided'}
+      Time: ${new Date(alarm.timestamp || Date.now()).toLocaleString()}
+      
+      Please investigate this issue immediately.
     `;
   }
 
-  // Keep your existing sendAlarmResolvedNotification method
-  async sendAlarmResolvedNotification(alarmData) {
-    if (!this.isConfigured || !this.transporter) {
-      console.error('❌ Email service not configured. Cannot send alarm resolution notification.');
-      throw new Error('Email service not configured');
-    }
-
-    try {
-      // ... your existing resolution email code
-    } catch (error) {
-      console.error('❌ Failed to send alarm resolution notification:', error);
-      throw error;
-    }
+  generateAlarmEmailHTML(alarm, severityLabel) {
+    return `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #d32f2f;">🚨 ${severityLabel} ALARM</h2>
+        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+          <p><strong>Site:</strong> ${alarm.siteName || 'Unknown'} (${alarm.siteId || 'N/A'})</p>
+          <p><strong>Alarm Type:</strong> ${alarm.alarmType || 'N/A'}</p>
+          <p><strong>Severity:</strong> <span style="color: ${this.getSeverityColor(alarm.severity)}; font-weight: bold;">${severityLabel}</span></p>
+          <p><strong>Time:</strong> ${new Date(alarm.timestamp || Date.now()).toLocaleString()}</p>
+        </div>
+        <div style="background-color: #fff; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">
+          <h3>Description:</h3>
+          <p>${alarm.description || 'No description provided'}</p>
+        </div>
+        <p style="margin-top: 20px; color: #666; font-size: 0.9em;">
+          This is an automated message. Please do not reply to this email.
+        </p>
+      </div>
+    `;
   }
 
-  async sendEmail(emailData) {
-    // Check if email service is properly configured
-    if (!this.isConfigured || !this.transporter) {
-      console.error('❌ Email service not configured. Cannot send email.');
-      throw new Error('Email service not configured - missing or invalid SMTP credentials');
-    }
-
-    try {
-      console.log(`📧 Preparing to send email: ${emailData.subject}`);
-
-      // Get recipients from email data or fallback to environment variable
-      let recipients = emailData.to || emailData.recipients;
-      if (!recipients) {
-        recipients = process.env.NOC_EMAILS ? process.env.NOC_EMAILS.split(',') : [];
-      }
-
-      if (!Array.isArray(recipients)) {
-        recipients = [recipients];
-      }
-
-      if (recipients.length === 0) {
-        throw new Error('No email recipients configured');
-      }
-
-      console.log(`📨 Sending email to: ${recipients.join(', ')}`);
-
-      const mailOptions = {
-        from: process.env.FROM_EMAIL,
-        to: recipients.join(', '),
-        subject: emailData.subject,
-        text: emailData.text || emailData.subject,
-        html: emailData.html,
-        // Add headers for better email deliverability
-        headers: {
-          'X-Priority': '1',
-          'X-MSMail-Priority': 'High',
-          'Importance': 'high'
-        }
-      };
-
-      console.log('📤 Sending email...');
-      const result = await this.transporter.sendMail(mailOptions);
-      console.log(`✅ Email sent successfully! Message ID: ${result.messageId}`);
-      console.log(`✅ Email sent to ${recipients.length} recipients`);
-
-      return result;
-
-    } catch (error) {
-      console.error(`❌ Failed to send email:`, error.message);
-
-      throw error;
-    }
-  }
-
-  // Test method to verify email configuration
-  async testConfiguration() {
-    if (!this.isConfigured) {
-      return { success: false, message: 'Email service not configured' };
-    }
-
-    try {
-      const testEmail = process.env.SMTP_USER;
-      const mailOptions = {
-        from: process.env.FROM_EMAIL,
-        to: testEmail,
-        subject: 'NOC Alert System - Test Email',
-        text: 'This is a test email from NOC Alert System. If you receive this, email configuration is working correctly.',
-        html: '<h1>NOC Alert System Test</h1><p>This is a test email. If you receive this, email configuration is working correctly.</p>'
-      };
-
-      const result = await this.transporter.sendMail(mailOptions);
-      return { 
-        success: true, 
-        message: 'Test email sent successfully', 
-        messageId: result.messageId 
-      };
-    } catch (error) {
-      return { 
-        success: false, 
-        message: error.message,
-        code: error.code 
-      };
-    }
+  getSeverityColor(severity) {
+    const colors = {
+      critical: '#d32f2f',
+      major: '#ff9800',
+      minor: '#ffc107',
+      warning: '#4caf50'
+    };
+    return colors[severity?.toLowerCase()] || '#9e9e9e';
   }
 
   getStatus() {
     return {
       isConfigured: this.isConfigured,
       hasTransporter: !!this.transporter,
-      smtpUser: process.env.SMTP_USER ? 'Set' : 'Not set',
-      smtpPass: process.env.SMTP_PASS ? `Set (${process.env.SMTP_PASS.length} chars)` : 'Not set',
-      fromEmail: process.env.FROM_EMAIL || 'Not set',
-      nocEmails: process.env.NOC_EMAILS || 'Not set'
+      smtpUser: this.smtpUser ? 'Configured' : 'Not configured',
+      fromEmail: this.fromEmail || 'Not configured',
+      recipients: {
+        dailyReports: this.recipients?.dailyReports?.length || 0,
+        hourlyReports: this.recipients?.hourlyReports?.length || 0,
+        immediateAlerts: this.recipients?.immediateAlerts?.length || 0
+      }
     };
+  }
+
+  async testConnection(config) {
+    const transporter = nodemailer.createTransport({
+      host: config?.host,
+      port: Number(config?.port),
+      secure: Boolean(config?.secure),
+      auth: {
+        user: config?.auth?.user,
+        pass: config?.auth?.pass,
+      },
+    });
+
+    return new Promise((resolve, reject) => {
+      transporter.verify((error, success) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(success);
+      });
+    });
+  }
+
+  async sendEmail(emailData) {
+    try {
+      await this.refreshConfig();
+
+      if (!this.isConfigured || !this.transporter) {
+        throw new Error("Email service not configured - missing or invalid SMTP credentials");
+      }
+
+      // Determine recipients based on email type
+      const emailType = emailData.type || 'immediateAlerts';
+      const recipients = this.recipients[emailType]?.length 
+        ? this.recipients[emailType] 
+        : this.recipients.immediateAlerts || ['noc@example.com'];
+
+      const mailOptions = {
+        from: this.fromEmail,
+        to: recipients.join(', '),
+        subject: emailData.subject || 'NOC Alert',
+        text: emailData.text || '',
+        html: emailData.html || ''
+      };
+
+      console.log(`📤 Sending ${emailType} email to: ${recipients.join(', ')}`);
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Email sent successfully! Message ID: ${result.messageId}`);
+
+      return {
+        success: true,
+        message: "Email sent successfully",
+        messageId: result.messageId,
+        recipients: recipients
+      };
+    } catch (error) {
+      console.error("❌ Failed to send email:", error);
+      throw error;
+    }
   }
 }
 
@@ -425,17 +381,12 @@ Please investigate and resolve this alarm as soon as possible.
 let _instance = null;
 
 // Get or create singleton instance
-export const getEmailService = () => {
+export const getEmailService = async () => {
   if (!_instance) {
     _instance = new EmailService();
-  }
-  // Ensure we have a valid configuration
-  if (!_instance.isConfigured) {
-    _instance.init();
+    await _instance.init();
   }
   return _instance;
 };
 
-// For backward compatibility
-export const emailService = getEmailService();
 export default EmailService;
